@@ -11,6 +11,5 @@ Collecting the material and data to start building the software.
 ## Phase 1
 ### 1. Data collection
 - [x] Looking for video and image datasets (samples from manufacturing companies).
-- [ ] Finding ideal products to use
+- [ ] Finding and buying ideal products to use
 - [ ] Create own video samples and datasets
-- [ ] 
