@@ -10,4 +10,4 @@ Collecting the material and data to start building the software.
 
 ## Phase 1
 ### 1. Data collection
-- [ ] Looking for video and image datasets (samples from manufacturing companies)
+- [ ] Looking for video and image datasets (samples from manufacturing companies).
