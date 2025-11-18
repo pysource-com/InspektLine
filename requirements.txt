@@ -1,0 +1,10 @@
+# Detector
+transformers==4.57.1
+
+# Image processing
+opencv-python==4.12.0.88
+
+# PyTorch with CUDA 12.6 support
+--extra-index-url https://download.pytorch.org/whl/cu126
+torch
+torchvision
