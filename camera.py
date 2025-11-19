@@ -39,5 +39,12 @@ class Camera:
             raise ValueError(f"Camera with index {index} could not be opened.")
         return cap
 
+    def read_frame(self, cap):
+        """Read a frame from the given video capture object."""
+        ret, frame = cap.read()
+        if not ret:
+            return None
+        return frame
+
 
 

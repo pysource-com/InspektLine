@@ -23,14 +23,16 @@ class Trainer:
     """
 
     def __init__(
-        self,
-        model_name: str = "facebook/convnextv2-tiny-22k-224",
-        num_labels: Optional[int] = None,
-        device: Optional[str] = None,
-        lr: float = 5e-5,
-        weight_decay: float = 0.0,
-        output_dir: str = "outputs",
-        mixed_precision: bool = False,
+            self,
+            model_name: str = "facebook/convnextv2-tiny-22k-224",
+            num_labels: Optional[int] = None,
+            device: Optional[str] = None,
+            lr: float = 5e-5,
+            weight_decay: float = 0.0,
+            output_dir: str = "outputs",
+            mixed_precision: bool = False,
+            id2label: Optional[dict] = None,
+            label2id: Optional[dict] = None,
     ) -> None:
         self.model_name = model_name
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
@@ -42,14 +44,18 @@ class Trainer:
         # Load processor
         self.processor = AutoImageProcessor.from_pretrained(self.model_name)
 
-        # Load model (optionally override num_labels in config)
+        # Load model with updated labels
+        config = AutoConfig.from_pretrained(self.model_name)
         if num_labels is not None:
-            config = AutoConfig.from_pretrained(self.model_name, num_labels=num_labels)
-            self.model = AutoModelForImageClassification.from_pretrained(
-                self.model_name, config=config
-            )
-        else:
-            self.model = AutoModelForImageClassification.from_pretrained(self.model_name)
+            config.num_labels = num_labels
+        if id2label is not None:
+            config.id2label = id2label
+        if label2id is not None:
+            config.label2id = label2id
+
+        self.model = AutoModelForImageClassification.from_pretrained(
+            self.model_name, config=config, ignore_mismatched_sizes=True
+        )
 
         self.model.to(self.device)
         self.scaler = torch.cuda.amp.GradScaler() if self.mixed_precision and torch.cuda.is_available() else None
@@ -182,7 +188,20 @@ if __name__ == "__main__":
 
     dataset = load_dataset("imagefolder", data_dir="../samples/splitted_dataset")
 
-    trainer = Trainer(model_name="facebook/convnextv2-tiny-22k-224", device="cuda", mixed_precision=True)
+    # Extract label names from dataset
+    label_names = dataset["train"].features["label"].names
+    id2label = {i: label for i, label in enumerate(label_names)}
+    label2id = {label: i for i, label in enumerate(label_names)}
+
+    trainer = Trainer(
+        model_name="facebook/convnextv2-tiny-22k-224",
+        device="cuda",
+        mixed_precision=True,
+        num_labels=len(label_names),
+        id2label=id2label,
+        label2id=label2id
+    )
+
 
     def collate_fn(examples):
         batch = {
@@ -192,7 +211,9 @@ if __name__ == "__main__":
             batch["labels"] = torch.tensor([e["label"] for e in examples])
         return batch
 
+
     train_loader = DataLoader(dataset["train"], batch_size=64, shuffle=True, collate_fn=collate_fn)
     val_loader = DataLoader(dataset["test"], batch_size=64, collate_fn=collate_fn)
 
     trainer.train(train_loader, val_loader, epochs=25, save_every_epoch=True)
+

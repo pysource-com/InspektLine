@@ -97,21 +97,30 @@ if __name__ == "__main__":
     from datasets import load_dataset
     import cv2
     import numpy as np
+    import os
 
-    dataset = load_dataset("huggingface/cats-image")
-    image = dataset["test"]["image"][0]
+    # load image from samples/splitted_dataset/test/Red/00001.jpg
+    image_path = "../samples/splitted_dataset/test/Red/00003.jpg"
+    image_bgr = cv2.imread(image_path)
+    image = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
 
-    # show the image with opencv
-    image_np = np.array(image)
-    cv2.imshow("Cat Image", cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR))
-    cv2.waitKey(1)
 
+    # display image using cv2
+    cv2.imshow("Input Image", image_bgr)
+
+
+    # load safetensor model from trainer/outputs
+    model = r"../trainer/outputs/epoch-1"
+    # check if model file exists
+
+    if not os.path.exists(model):
+        raise FileNotFoundError(f"Model file not found: {model}")
     classifier = TransformerImageClassifier(
-        model_name="facebook/convnextv2-base-22k-224"
+        model_name=model,
+        device="cuda",
     )
-
-    predictions = classifier.predict([image], top_k=1)
-    predicted_label = predictions[0][0]["label"]
-    print(predicted_label)
+    results = classifier.predict([image], top_k=1, return_probabilities=True)
+    for res in results[0]:
+        print(f"Label: {res['label']}, Score: {res['score']:.4f}, ID: {res['id']}")
 
     cv2.waitKey(0)
