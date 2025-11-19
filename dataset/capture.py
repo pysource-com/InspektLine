@@ -1,8 +1,7 @@
 import cv2
-import os
 from pathlib import Path
 from datetime import datetime
-from camera import Camera
+from camera.camera import Camera
 from config import *
 
 class DatasetCapture:
