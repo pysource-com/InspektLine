@@ -248,7 +248,7 @@ if __name__ == "__main__":
     # Create augmented dataset with medium preset
     augmented_dataset = DataAugmentator(
         dataset=base_dataset,
-        augmentations=AugmentationPresets.medium(),
+        augmentations=AugmentationPresets.light(),
         rotation_degrees=20,
         brightness=0.3,
         contrast=0.3
