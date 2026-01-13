@@ -100,7 +100,7 @@ if __name__ == "__main__":
     import os
 
     # load image from samples/splitted_dataset/test/Red/00001.jpg
-    image_path = "../samples/splitted_dataset/test/def_front/cast_def_0_135_jpeg.rf.65cd73d5db2de45f008d9a6290d44473.jpg"
+    image_path = "../samples/splitted_dataset/test/ok_front/cast_ok_0_909_jpeg.rf.5717b796847655a58b41122a84441840.jpg"
     image_bgr = cv2.imread(image_path)
     image = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
 

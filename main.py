@@ -50,7 +50,7 @@ while True:
             print(f"Label: {label}, Score: {top_result['score']:.4f}, ID: {top_result['id']}")
 
             # Assuming 'defective' is one of the possible labels
-            if "defective" in label.lower():
+            if "def_front" in label.lower():
                 display_text = "Defective"
                 text_color = (0, 0, 255)  # Red in BGR
             else:

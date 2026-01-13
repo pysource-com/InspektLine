@@ -230,7 +230,7 @@ if __name__ == "__main__":
     import os
 
     # Define paths
-    input_dir = Path("../samples/dataset_captured")
+    input_dir = Path("../samples/disks_defects")
     output_dir = Path("../samples/dataset_augmented")
     output_dir.mkdir(parents=True, exist_ok=True)
 

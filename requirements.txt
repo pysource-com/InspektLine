@@ -15,6 +15,9 @@ pyrealsense2==2.56.5.9235
 # Graphics and visualization
 matplotlib==3.10.7
 
+# GUI
+PySide6
+
 # PyTorch with CUDA 12.6 support
 --extra-index-url https://download.pytorch.org/whl/cu126
 torch
