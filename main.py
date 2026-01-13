@@ -3,7 +3,7 @@ import cv2
 # load image classifier
 from detector.classifier import TransformerImageClassifier
 
-model = r"trainer/outputs/epoch-9"
+model = r"trainer/outputs/epoch-3"
 classifier = TransformerImageClassifier(
     model_name=model,
     device="cuda",

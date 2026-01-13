@@ -127,7 +127,7 @@ class DatasetSplitter:
 # Example usage:
 if __name__ == "__main__":
     splitter = DatasetSplitter(
-        src_root=r"../samples/dataset_augmented",
+        src_root=r"../samples/disks_defects",
         dst_root="../samples/splitted_dataset",
         test_size=0.1,
         val_size=0.1,
