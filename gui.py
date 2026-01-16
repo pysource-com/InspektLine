@@ -78,6 +78,8 @@ class VideoDisplayWidget(QMainWindow):
         self.session_start_time = None
         self.selected_defect_category = "Surface Defect"
         self.recent_samples = []
+        self.gallery_items = []
+        self.gallery_loaded = False
 
         self.init_ui()
         self.start_video()
@@ -613,9 +615,9 @@ class VideoDisplayWidget(QMainWindow):
         header_layout.addWidget(title)
         header_layout.addStretch()
 
-        # OK count badge
-        ok_badge = QLabel("OK: 0")
-        ok_badge.setStyleSheet("""
+        # OK count badge - store reference
+        self.gallery_ok_badge = QLabel("OK: 0")
+        self.gallery_ok_badge.setStyleSheet("""
             background-color: #00cc00;
             color: #000;
             padding: 3px 8px;
@@ -623,11 +625,11 @@ class VideoDisplayWidget(QMainWindow):
             font-size: 11px;
             font-weight: bold;
         """)
-        header_layout.addWidget(ok_badge)
+        header_layout.addWidget(self.gallery_ok_badge)
 
-        # NG count badge
-        ng_badge = QLabel("NG: 0")
-        ng_badge.setStyleSheet("""
+        # NG count badge - store reference
+        self.gallery_ng_badge = QLabel("NG: 0")
+        self.gallery_ng_badge.setStyleSheet("""
             background-color: #ff0000;
             color: #fff;
             padding: 3px 8px;
@@ -635,11 +637,11 @@ class VideoDisplayWidget(QMainWindow):
             font-size: 11px;
             font-weight: bold;
         """)
-        header_layout.addWidget(ng_badge)
+        header_layout.addWidget(self.gallery_ng_badge)
 
         layout.addLayout(header_layout)
 
-        # Gallery content (placeholder)
+        # Gallery content with proper container
         gallery_scroll = QScrollArea()
         gallery_scroll.setWidgetResizable(True)
         gallery_scroll.setStyleSheet("""
@@ -648,12 +650,34 @@ class VideoDisplayWidget(QMainWindow):
                 border: none;
                 border-radius: 8px;
             }
+            QScrollBar:vertical {
+                background-color: #0a0a0a;
+                width: 8px;
+                border-radius: 4px;
+            }
+            QScrollBar::handle:vertical {
+                background-color: #2a2a2a;
+                border-radius: 4px;
+            }
         """)
 
-        gallery_content = QLabel("Gallery thumbnails\nwill appear here")
-        gallery_content.setStyleSheet("color: #666; padding: 40px;")
-        gallery_content.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        gallery_scroll.setWidget(gallery_content)
+        # Create a widget to hold the gallery items
+        self.gallery_content = QWidget()
+        self.gallery_layout = QVBoxLayout(self.gallery_content)
+        self.gallery_layout.setContentsMargins(10, 10, 10, 10)
+        self.gallery_layout.setSpacing(10)
+        self.gallery_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+
+        # Initial empty message
+        self.gallery_empty_label = QLabel("Gallery thumbnails\nwill appear here")
+        self.gallery_empty_label.setStyleSheet("color: #666; padding: 40px;")
+        self.gallery_empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.gallery_layout.addWidget(self.gallery_empty_label)
+
+        # Initialize gallery items list
+        self.gallery_items = []
+
+        gallery_scroll.setWidget(self.gallery_content)
 
         layout.addWidget(gallery_scroll, stretch=1)
 
@@ -700,8 +724,12 @@ class VideoDisplayWidget(QMainWindow):
         # Update UI
         self.update_dataset_statistics()
 
+        # Update gallery badges
+        self.update_gallery_badges()
 
-        # TODO: Add to gallery display if gallery widget exists
+        # Add to gallery display
+        self.add_to_gallery(save_path, label_type)
+
         print(f"Total: {self.total_samples}, OK: {self.ok_samples}, NOT OK: {self.not_ok_samples}")
 
     def update_dataset_statistics(self):
@@ -709,6 +737,120 @@ class VideoDisplayWidget(QMainWindow):
         self.total_samples_label.setText(str(self.total_samples))
         self.ok_samples_label.setText(str(self.ok_samples))
         self.not_ok_samples_label.setText(str(self.not_ok_samples))
+
+    def update_gallery_badges(self):
+        """Update the gallery badge counters."""
+        if hasattr(self, 'gallery_ok_badge'):
+            self.gallery_ok_badge.setText(f"OK: {self.ok_samples}")
+        if hasattr(self, 'gallery_ng_badge'):
+            self.gallery_ng_badge.setText(f"NG: {self.not_ok_samples}")
+
+    def add_to_gallery(self, image_path, label_type):
+        """Add a thumbnail to the gallery."""
+        from pathlib import Path
+
+        # Remove empty label if this is the first image
+        if len(self.gallery_items) == 0 and hasattr(self, 'gallery_empty_label'):
+            if self.gallery_empty_label is not None:
+                self.gallery_empty_label.deleteLater()
+                self.gallery_empty_label = None
+
+        # Create thumbnail widget
+        thumbnail_widget = QWidget()
+        thumbnail_widget.setFixedHeight(100)
+        thumbnail_widget.setStyleSheet(f"""
+            QWidget {{
+                background-color: #1a1a1a;
+                border-radius: 8px;
+                border: 2px solid {'#00cc00' if label_type == 'OK' else '#cc0000'};
+            }}
+        """)
+
+        thumb_layout = QHBoxLayout(thumbnail_widget)
+        thumb_layout.setContentsMargins(8, 8, 8, 8)
+        thumb_layout.setSpacing(10)
+
+        # Load and display thumbnail image
+        pixmap = QPixmap(str(image_path))
+        if not pixmap.isNull():
+            scaled_pixmap = pixmap.scaled(84, 84, Qt.AspectRatioMode.KeepAspectRatio,
+                                         Qt.TransformationMode.SmoothTransformation)
+            image_label = QLabel()
+            image_label.setPixmap(scaled_pixmap)
+            image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            thumb_layout.addWidget(image_label)
+
+        # Info section
+        info_layout = QVBoxLayout()
+        info_layout.setSpacing(4)
+
+        # Label type
+        label_widget = QLabel(label_type)
+        label_widget.setStyleSheet(f"""
+            color: {'#00cc00' if label_type == 'OK' else '#cc0000'};
+            font-weight: bold;
+            font-size: 12px;
+        """)
+        info_layout.addWidget(label_widget)
+
+        # Filename
+        filename = Path(image_path).name
+        filename_label = QLabel(filename[:20] + "..." if len(filename) > 20 else filename)
+        filename_label.setStyleSheet("color: #999; font-size: 10px;")
+        info_layout.addWidget(filename_label)
+
+        info_layout.addStretch()
+        thumb_layout.addLayout(info_layout)
+
+        # Add to layout at the top (most recent first)
+        self.gallery_layout.insertWidget(0, thumbnail_widget)
+        self.gallery_items.append(thumbnail_widget)
+
+        # Limit gallery to last 50 items
+        if len(self.gallery_items) > 50:
+            old_widget = self.gallery_items.pop(0)
+            old_widget.deleteLater()
+
+    def load_existing_samples(self):
+        """Load existing samples from storage folder."""
+        from pathlib import Path
+
+        storage_path = Path("storage/dataset")
+        ok_path = storage_path / "ok"
+        not_ok_path = storage_path / "not_ok"
+
+        # Lists to hold all files with their timestamps
+        all_files = []
+
+        # Load OK samples
+        if ok_path.exists():
+            ok_files = list(ok_path.glob("*.jpg"))
+            for img_path in ok_files:
+                all_files.append((img_path.stat().st_mtime, img_path, "OK"))
+                self.ok_samples += 1
+                self.total_samples += 1
+
+        # Load NOT OK samples
+        if not_ok_path.exists():
+            notok_files = list(not_ok_path.glob("*.jpg"))
+            for img_path in notok_files:
+                all_files.append((img_path.stat().st_mtime, img_path, "NOT_OK"))
+                self.not_ok_samples += 1
+                self.total_samples += 1
+
+        # Sort by modification time (most recent first) and take last 50
+        all_files.sort(reverse=True, key=lambda x: x[0])
+        recent_files = all_files[:50]
+
+        # Add to gallery (reverse order so oldest of the 50 is at bottom)
+        for _, img_path, label_type in reversed(recent_files):
+            self.add_to_gallery(img_path, label_type)
+
+        # Update statistics and badges
+        self.update_dataset_statistics()
+        self.update_gallery_badges()
+
+        print(f"Loaded {len(recent_files)} existing samples from storage")
 
     def create_settings_page(self):
         """Create the settings configuration page."""
@@ -1160,6 +1302,11 @@ class VideoDisplayWidget(QMainWindow):
             self.capturing_badge.setVisible(True)
             self.ok_button.setEnabled(True)
             self.not_ok_button.setEnabled(True)
+
+            # Load existing images on first visit to dataset page
+            if not self.gallery_loaded:
+                self.load_existing_samples()
+                self.gallery_loaded = True
         else:
             self.is_capturing = False
             if hasattr(self, 'capturing_badge'):
