@@ -367,36 +367,12 @@ class VideoDisplayWidget(QMainWindow):
         video_layout = QVBoxLayout(video_container)
         video_layout.setContentsMargins(10, 10, 10, 10)
 
-        # Collection counter overlay
-        counter_widget = QWidget()
-        counter_layout = QHBoxLayout(counter_widget)
-        counter_layout.setContentsMargins(20, 20, 20, 20)
-
-        counter_layout.addStretch()
-
-        self.collection_counter_label = QLabel("Collected\n0")
-        self.collection_counter_label.setStyleSheet("""
-            background-color: rgba(0, 0, 0, 0.7);
-            color: #fff;
-            padding: 15px 20px;
-            border-radius: 8px;
-            font-size: 16px;
-            font-weight: bold;
-        """)
-        self.collection_counter_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        counter_layout.addWidget(self.collection_counter_label)
-
         # Use the same video label from camera page
         self.dataset_video_label = QLabel()
         self.dataset_video_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.dataset_video_label.setStyleSheet("background-color: #000000; border: none;")
         self.dataset_video_label.setMinimumSize(800, 480)
 
-        # Stack counter on top of video
-        video_stack_layout = QVBoxLayout()
-        video_stack_layout.addWidget(counter_widget)
-        video_stack_layout.addStretch()
-        self.dataset_video_label.setLayout(video_stack_layout)
 
         video_layout.addWidget(self.dataset_video_label)
         right_layout.addWidget(video_container, stretch=1)
@@ -696,8 +672,6 @@ class VideoDisplayWidget(QMainWindow):
         # Update UI
         self.update_dataset_statistics()
 
-        # Update collection counter
-        self.collection_counter_label.setText(f"Collected\n{self.total_samples}")
 
         # TODO: Save the actual frame from camera
         # This would integrate with the dataset module
