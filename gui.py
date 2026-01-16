@@ -69,6 +69,15 @@ class VideoDisplayWidget(QMainWindow):
         self.resolution = "1920 x 1080 (Full HD)"
         self.frame_rate = "30 FPS"
 
+        # Dataset collection values
+        self.is_capturing = False
+        self.total_samples = 0
+        self.ok_samples = 0
+        self.not_ok_samples = 0
+        self.session_start_time = None
+        self.selected_defect_category = "Surface Defect"
+        self.recent_samples = []
+
         self.init_ui()
         self.start_video()
 
@@ -105,6 +114,10 @@ class VideoDisplayWidget(QMainWindow):
         # Create camera feed page
         camera_page = self.create_camera_page()
         self.stacked_widget.addWidget(camera_page)
+
+        # Create dataset collection page
+        dataset_page = self.create_dataset_collection_page()
+        self.stacked_widget.addWidget(dataset_page)
 
         # Create settings page
         settings_page = self.create_settings_page()
@@ -206,6 +219,495 @@ class VideoDisplayWidget(QMainWindow):
         content_layout.addWidget(bottom_panel)
 
         return content_widget
+
+    def create_dataset_collection_page(self):
+        """Create the dataset collection page."""
+        main_widget = QWidget()
+        main_outer_layout = QVBoxLayout(main_widget)
+        main_outer_layout.setContentsMargins(20, 20, 20, 20)
+        main_outer_layout.setSpacing(20)
+
+        # Top header with title and buttons
+        top_header = QHBoxLayout()
+
+        page_title = QLabel("Dataset Collection")
+        page_title.setStyleSheet("font-size: 28px; font-weight: bold; color: #fff;")
+        top_header.addWidget(page_title)
+
+        top_header.addStretch()
+
+        # Shortcuts button
+        shortcuts_btn = QPushButton("⌨ Shortcuts (?)")
+        shortcuts_btn.setFixedHeight(40)
+        shortcuts_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2a2a2a;
+                color: #fff;
+                border: none;
+                border-radius: 8px;
+                padding: 0 20px;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #3a3a3a;
+            }
+        """)
+        top_header.addWidget(shortcuts_btn)
+
+        # Export Dataset button
+        export_btn = QPushButton("⬇ Export Dataset")
+        export_btn.setFixedHeight(40)
+        export_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #0066ff;
+                color: #fff;
+                border: none;
+                border-radius: 8px;
+                padding: 0 20px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #0052cc;
+            }
+        """)
+        top_header.addWidget(export_btn)
+
+        main_outer_layout.addLayout(top_header)
+
+        # Main content layout
+        main_layout = QHBoxLayout()
+        main_layout.setSpacing(20)
+
+        # Left panel - Statistics and Controls
+        left_panel = QWidget()
+        left_layout = QVBoxLayout(left_panel)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(20)
+
+
+        subtitle_label = QLabel("Label images for training data")
+        subtitle_label.setStyleSheet("font-size: 14px; color: #999;")
+        left_layout.addWidget(subtitle_label)
+
+        # Session Statistics section
+        stats_widget = self.create_session_statistics_widget()
+        left_layout.addWidget(stats_widget)
+
+        # Defect Category section
+        defect_widget = self.create_defect_category_widget()
+        left_layout.addWidget(defect_widget)
+
+        # Recent Samples section
+        recent_widget = self.create_recent_samples_widget()
+        left_layout.addWidget(recent_widget)
+
+        left_layout.addStretch()
+
+        left_panel.setFixedWidth(400)
+        main_layout.addWidget(left_panel)
+
+        # Center/Right panel - Live Feed and Controls
+        right_panel = QWidget()
+        right_layout = QVBoxLayout(right_panel)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(20)
+
+        # Live Feed header
+        feed_header = QHBoxLayout()
+
+        feed_title_widget = QWidget()
+        feed_title_layout = QHBoxLayout(feed_title_widget)
+        feed_title_layout.setContentsMargins(0, 0, 0, 0)
+        feed_title_layout.setSpacing(10)
+
+        camera_icon = QLabel("📹")
+        camera_icon.setStyleSheet("font-size: 24px;")
+        feed_title_layout.addWidget(camera_icon)
+
+        feed_label = QLabel("Live Feed")
+        feed_label.setStyleSheet("font-size: 20px; font-weight: bold; color: #fff;")
+        feed_title_layout.addWidget(feed_label)
+
+        # CAPTURING badge
+        self.capturing_badge = QLabel("CAPTURING")
+        self.capturing_badge.setStyleSheet("""
+            background-color: #00cc00;
+            color: #000;
+            padding: 3px 8px;
+            border-radius: 3px;
+            font-size: 12px;
+            font-weight: bold;
+        """)
+        self.capturing_badge.setVisible(False)
+        feed_title_layout.addWidget(self.capturing_badge)
+        feed_title_layout.addStretch()
+
+        feed_header.addWidget(feed_title_widget)
+        feed_header.addStretch()
+
+        # Refresh button
+        refresh_btn = QPushButton("🔄")
+        refresh_btn.setFixedSize(40, 40)
+        refresh_btn.setStyleSheet(self.get_icon_button_style())
+        refresh_btn.clicked.connect(self.refresh_camera)
+        feed_header.addWidget(refresh_btn)
+
+        right_layout.addLayout(feed_header)
+
+        # Live feed video display
+        video_container = QWidget()
+        video_container.setStyleSheet("""
+            QWidget {
+                background-color: #0f0f0f;
+                border: 1px solid #1a1a1a;
+                border-radius: 8px;
+            }
+        """)
+        video_layout = QVBoxLayout(video_container)
+        video_layout.setContentsMargins(10, 10, 10, 10)
+
+        # Collection counter overlay
+        counter_widget = QWidget()
+        counter_layout = QHBoxLayout(counter_widget)
+        counter_layout.setContentsMargins(20, 20, 20, 20)
+
+        counter_layout.addStretch()
+
+        self.collection_counter_label = QLabel("Collected\n0")
+        self.collection_counter_label.setStyleSheet("""
+            background-color: rgba(0, 0, 0, 0.7);
+            color: #fff;
+            padding: 15px 20px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+        """)
+        self.collection_counter_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        counter_layout.addWidget(self.collection_counter_label)
+
+        # Use the same video label from camera page
+        self.dataset_video_label = QLabel()
+        self.dataset_video_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.dataset_video_label.setStyleSheet("background-color: #000000; border: none;")
+        self.dataset_video_label.setMinimumSize(800, 480)
+
+        # Stack counter on top of video
+        video_stack_layout = QVBoxLayout()
+        video_stack_layout.addWidget(counter_widget)
+        video_stack_layout.addStretch()
+        self.dataset_video_label.setLayout(video_stack_layout)
+
+        video_layout.addWidget(self.dataset_video_label)
+        right_layout.addWidget(video_container, stretch=1)
+
+        # Bottom buttons - OK and NOT OK
+        buttons_layout = QHBoxLayout()
+        buttons_layout.setSpacing(20)
+
+        # OK button
+        self.ok_button = QPushButton("✓\nOK\nPress → or Enter")
+        self.ok_button.setFixedHeight(120)
+        self.ok_button.setStyleSheet("""
+            QPushButton {
+                background-color: #00cc00;
+                color: #000;
+                border: none;
+                border-radius: 12px;
+                font-size: 18px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #00ff00;
+            }
+            QPushButton:pressed {
+                background-color: #009900;
+            }
+            QPushButton:disabled {
+                background-color: #004400;
+                color: #666;
+            }
+        """)
+        self.ok_button.clicked.connect(lambda: self.capture_sample("OK"))
+        self.ok_button.setEnabled(False)
+        buttons_layout.addWidget(self.ok_button, stretch=1)
+
+        # NOT OK button
+        self.not_ok_button = QPushButton("✕\nNOT OK\nPress ← or Backspace")
+        self.not_ok_button.setFixedHeight(120)
+        self.not_ok_button.setStyleSheet("""
+            QPushButton {
+                background-color: #ff0000;
+                color: #fff;
+                border: none;
+                border-radius: 12px;
+                font-size: 18px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #ff3333;
+            }
+            QPushButton:pressed {
+                background-color: #cc0000;
+            }
+            QPushButton:disabled {
+                background-color: #440000;
+                color: #666;
+            }
+        """)
+        self.not_ok_button.clicked.connect(lambda: self.capture_sample("NOT_OK"))
+        self.not_ok_button.setEnabled(False)
+        buttons_layout.addWidget(self.not_ok_button, stretch=1)
+
+        right_layout.addLayout(buttons_layout)
+
+        main_layout.addWidget(right_panel, stretch=1)
+
+        # Gallery panel on far right
+        gallery_panel = self.create_collection_gallery_widget()
+        gallery_panel.setFixedWidth(300)
+        main_layout.addWidget(gallery_panel)
+
+        # Add main content to outer layout
+        main_outer_layout.addLayout(main_layout)
+
+        return main_widget
+
+    def create_session_statistics_widget(self):
+        """Create session statistics widget."""
+        widget = QWidget()
+        widget.setStyleSheet("""
+            QWidget {
+                background-color: #121212;
+                border-radius: 12px;
+            }
+        """)
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+
+        title = QLabel("Session Statistics")
+        title.setStyleSheet("font-size: 18px; font-weight: bold; color: #fff;")
+        layout.addWidget(title)
+
+        # Total Samples
+        total_layout = QHBoxLayout()
+        total_label = QLabel("Total Samples")
+        total_label.setStyleSheet("color: #999; font-size: 14px;")
+        total_layout.addWidget(total_label)
+        total_layout.addStretch()
+        self.total_samples_label = QLabel("0")
+        self.total_samples_label.setStyleSheet("color: #fff; font-size: 18px; font-weight: bold;")
+        total_layout.addWidget(self.total_samples_label)
+        layout.addLayout(total_layout)
+
+        # OK Samples
+        ok_layout = QHBoxLayout()
+        ok_label = QLabel("OK Samples")
+        ok_label.setStyleSheet("color: #00cc00; font-size: 14px;")
+        ok_layout.addWidget(ok_label)
+        ok_layout.addStretch()
+        self.ok_samples_label = QLabel("0")
+        self.ok_samples_label.setStyleSheet("color: #00cc00; font-size: 18px; font-weight: bold;")
+        ok_layout.addWidget(self.ok_samples_label)
+        layout.addLayout(ok_layout)
+
+        # NOT OK Samples
+        not_ok_layout = QHBoxLayout()
+        not_ok_label = QLabel("NOT OK Samples")
+        not_ok_label.setStyleSheet("color: #ff0000; font-size: 14px;")
+        not_ok_layout.addWidget(not_ok_label)
+        not_ok_layout.addStretch()
+        self.not_ok_samples_label = QLabel("0")
+        self.not_ok_samples_label.setStyleSheet("color: #ff0000; font-size: 18px; font-weight: bold;")
+        not_ok_layout.addWidget(self.not_ok_samples_label)
+        layout.addLayout(not_ok_layout)
+
+        # Separator
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setStyleSheet("background-color: #2a2a2a;")
+        layout.addWidget(separator)
+
+        # Session Duration
+        duration_layout = QHBoxLayout()
+        duration_label = QLabel("Session Duration")
+        duration_label.setStyleSheet("color: #999; font-size: 14px;")
+        duration_layout.addWidget(duration_label)
+        duration_layout.addStretch()
+        self.duration_label = QLabel("0 min")
+        self.duration_label.setStyleSheet("color: #fff; font-size: 14px;")
+        duration_layout.addWidget(self.duration_label)
+        layout.addLayout(duration_layout)
+
+        # Rate
+        rate_layout = QHBoxLayout()
+        rate_label = QLabel("Rate")
+        rate_label.setStyleSheet("color: #999; font-size: 14px;")
+        rate_layout.addWidget(rate_label)
+        rate_layout.addStretch()
+        self.rate_label = QLabel("0 samples/min")
+        self.rate_label.setStyleSheet("color: #fff; font-size: 14px;")
+        rate_layout.addWidget(self.rate_label)
+        layout.addLayout(rate_layout)
+
+        return widget
+
+    def create_defect_category_widget(self):
+        """Create defect category selection widget."""
+        widget = QWidget()
+        widget.setStyleSheet("""
+            QWidget {
+                background-color: #121212;
+                border-radius: 12px;
+            }
+        """)
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+
+        title = QLabel("Defect Category")
+        title.setStyleSheet("font-size: 18px; font-weight: bold; color: #fff;")
+        layout.addWidget(title)
+
+        subtitle = QLabel("Select category before labeling NOT OK samples")
+        subtitle.setStyleSheet("color: #999; font-size: 12px;")
+        layout.addWidget(subtitle)
+
+        self.defect_category_combo = QComboBox()
+        self.defect_category_combo.addItems([
+            "Surface Defect",
+            "Crack",
+            "Scratch",
+            "Dent",
+            "Discoloration",
+            "Missing Part",
+            "Contamination"
+        ])
+        self.defect_category_combo.setCurrentText(self.selected_defect_category)
+        self.defect_category_combo.setStyleSheet(self.get_combobox_style())
+        self.defect_category_combo.setFixedHeight(45)
+        layout.addWidget(self.defect_category_combo)
+
+        return widget
+
+    def create_recent_samples_widget(self):
+        """Create recent samples widget."""
+        widget = QWidget()
+        widget.setStyleSheet("""
+            QWidget {
+                background-color: #121212;
+                border-radius: 12px;
+            }
+        """)
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+
+        title = QLabel("Recent Samples")
+        title.setStyleSheet("font-size: 18px; font-weight: bold; color: #fff;")
+        layout.addWidget(title)
+
+        # Placeholder for recent samples list
+        self.recent_samples_list = QLabel("No samples collected yet")
+        self.recent_samples_list.setStyleSheet("color: #666; font-size: 14px; padding: 20px;")
+        self.recent_samples_list.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.recent_samples_list)
+
+        return widget
+
+    def create_collection_gallery_widget(self):
+        """Create collection gallery widget."""
+        widget = QWidget()
+        widget.setStyleSheet("""
+            QWidget {
+                background-color: #121212;
+                border-radius: 12px;
+            }
+        """)
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+
+        # Header
+        header_layout = QHBoxLayout()
+        title = QLabel("Collection Gallery")
+        title.setStyleSheet("font-size: 18px; font-weight: bold; color: #fff;")
+        header_layout.addWidget(title)
+        header_layout.addStretch()
+
+        # OK count badge
+        ok_badge = QLabel("OK: 0")
+        ok_badge.setStyleSheet("""
+            background-color: #00cc00;
+            color: #000;
+            padding: 3px 8px;
+            border-radius: 3px;
+            font-size: 11px;
+            font-weight: bold;
+        """)
+        header_layout.addWidget(ok_badge)
+
+        # NG count badge
+        ng_badge = QLabel("NG: 0")
+        ng_badge.setStyleSheet("""
+            background-color: #ff0000;
+            color: #fff;
+            padding: 3px 8px;
+            border-radius: 3px;
+            font-size: 11px;
+            font-weight: bold;
+        """)
+        header_layout.addWidget(ng_badge)
+
+        layout.addLayout(header_layout)
+
+        # Gallery content (placeholder)
+        gallery_scroll = QScrollArea()
+        gallery_scroll.setWidgetResizable(True)
+        gallery_scroll.setStyleSheet("""
+            QScrollArea {
+                background-color: #0a0a0a;
+                border: none;
+                border-radius: 8px;
+            }
+        """)
+
+        gallery_content = QLabel("Gallery thumbnails\nwill appear here")
+        gallery_content.setStyleSheet("color: #666; padding: 40px;")
+        gallery_content.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        gallery_scroll.setWidget(gallery_content)
+
+        layout.addWidget(gallery_scroll, stretch=1)
+
+        return widget
+
+    def capture_sample(self, label_type):
+        """Capture a sample with the given label."""
+        print(f"Capturing sample: {label_type}")
+
+        # Update counters
+        self.total_samples += 1
+        if label_type == "OK":
+            self.ok_samples += 1
+        else:
+            self.not_ok_samples += 1
+
+        # Update UI
+        self.update_dataset_statistics()
+
+        # Update collection counter
+        self.collection_counter_label.setText(f"Collected\n{self.total_samples}")
+
+        # TODO: Save the actual frame from camera
+        # This would integrate with the dataset module
+        print(f"Total: {self.total_samples}, OK: {self.ok_samples}, NOT OK: {self.not_ok_samples}")
+
+    def update_dataset_statistics(self):
+        """Update dataset statistics labels."""
+        self.total_samples_label.setText(str(self.total_samples))
+        self.ok_samples_label.setText(str(self.ok_samples))
+        self.not_ok_samples_label.setText(str(self.not_ok_samples))
 
     def create_settings_page(self):
         """Create the settings configuration page."""
@@ -604,9 +1106,9 @@ class VideoDisplayWidget(QMainWindow):
         sidebar_layout.addWidget(camera_btn)
         self.sidebar_buttons.append(camera_btn)
 
-        # Capture button
+        # Capture button - Dataset Collection
         capture_btn = SidebarButton("📸")
-        capture_btn.clicked.connect(lambda: self.switch_page(0, capture_btn))
+        capture_btn.clicked.connect(lambda: self.switch_page(1, capture_btn))
         sidebar_layout.addWidget(capture_btn)
         self.sidebar_buttons.append(capture_btn)
 
@@ -632,7 +1134,7 @@ class VideoDisplayWidget(QMainWindow):
 
         # Settings button at bottom
         settings_btn = SidebarButton("⚙️")
-        settings_btn.clicked.connect(lambda: self.switch_page(1, settings_btn))
+        settings_btn.clicked.connect(lambda: self.switch_page(2, settings_btn))
         sidebar_layout.addWidget(settings_btn)
         self.sidebar_buttons.append(settings_btn)
 
@@ -650,6 +1152,21 @@ class VideoDisplayWidget(QMainWindow):
         # Update button states
         for btn in self.sidebar_buttons:
             btn.setChecked(btn == clicked_button)
+
+        # Enable/disable dataset capture buttons based on page
+        if page_index == 1:  # Dataset collection page
+            self.is_capturing = True
+            self.capturing_badge.setVisible(True)
+            self.ok_button.setEnabled(True)
+            self.not_ok_button.setEnabled(True)
+        else:
+            self.is_capturing = False
+            if hasattr(self, 'capturing_badge'):
+                self.capturing_badge.setVisible(False)
+            if hasattr(self, 'ok_button'):
+                self.ok_button.setEnabled(False)
+            if hasattr(self, 'not_ok_button'):
+                self.not_ok_button.setEnabled(False)
 
     def create_bottom_panel(self):
         """Create the bottom control panel with sliders and buttons."""
@@ -987,12 +1504,34 @@ class VideoDisplayWidget(QMainWindow):
                 # Display the frame
                 self.video_label.setPixmap(scaled_pixmap)
 
+                # Also update dataset video label if on dataset page
+                if hasattr(self, 'dataset_video_label'):
+                    scaled_pixmap_dataset = pixmap.scaled(
+                        self.dataset_video_label.size(),
+                        Qt.AspectRatioMode.KeepAspectRatio,
+                        Qt.TransformationMode.SmoothTransformation
+                    )
+                    self.dataset_video_label.setPixmap(scaled_pixmap_dataset)
+
     def closeEvent(self, event):
         """Clean up when the window is closed."""
         self.stop_video()
         if self.cap is not None:
             self.camera.release_cap(self.cap)
         event.accept()
+
+    def keyPressEvent(self, event):
+        """Handle keyboard shortcuts."""
+        # Dataset collection shortcuts
+        if self.stacked_widget.currentIndex() == 1:  # Dataset page
+            if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Right):
+                if self.ok_button.isEnabled():
+                    self.capture_sample("OK")
+            elif event.key() in (Qt.Key.Key_Backspace, Qt.Key.Key_Left):
+                if self.not_ok_button.isEnabled():
+                    self.capture_sample("NOT_OK")
+
+        super().keyPressEvent(event)
 
 
 def main():
