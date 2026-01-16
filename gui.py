@@ -1,6 +1,7 @@
 import sys
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-                                QLabel, QPushButton, QSlider, QFrame)
+                                QLabel, QPushButton, QSlider, QFrame, QComboBox, QCheckBox,
+                                QLineEdit, QScrollArea, QStackedWidget)
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QImage, QPixmap
 from camera.camera import Camera
@@ -56,6 +57,17 @@ class VideoDisplayWidget(QMainWindow):
         self.is_inspecting = False
         self.exposure_value = 50
         self.contrast_value = 75
+        self.current_page = "camera"  # Track current page
+
+        # Settings values
+        self.brightness_value = 50
+        self.saturation_value = 50
+        self.confidence_threshold = 85
+        self.min_defect_size = 10
+        self.auto_focus_enabled = True
+        self.stabilization_enabled = True
+        self.resolution = "1920 x 1080 (Full HD)"
+        self.frame_rate = "30 FPS"
 
         self.init_ui()
         self.start_video()
@@ -87,6 +99,21 @@ class VideoDisplayWidget(QMainWindow):
         sidebar = self.create_sidebar()
         main_layout.addWidget(sidebar)
 
+        # Create stacked widget for different pages
+        self.stacked_widget = QStackedWidget()
+
+        # Create camera feed page
+        camera_page = self.create_camera_page()
+        self.stacked_widget.addWidget(camera_page)
+
+        # Create settings page
+        settings_page = self.create_settings_page()
+        self.stacked_widget.addWidget(settings_page)
+
+        main_layout.addWidget(self.stacked_widget, stretch=1)
+
+    def create_camera_page(self):
+        """Create the main camera feed page."""
         # Create main content area
         content_widget = QWidget()
         content_layout = QVBoxLayout(content_widget)
@@ -178,7 +205,346 @@ class VideoDisplayWidget(QMainWindow):
         bottom_panel = self.create_bottom_panel()
         content_layout.addWidget(bottom_panel)
 
-        main_layout.addWidget(content_widget, stretch=1)
+        return content_widget
+
+    def create_settings_page(self):
+        """Create the settings configuration page."""
+        main_widget = QWidget()
+        main_layout = QHBoxLayout(main_widget)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+
+        # Left settings menu
+        settings_menu = self.create_settings_menu()
+        main_layout.addWidget(settings_menu)
+
+        # Right content area with scroll
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setStyleSheet("""
+            QScrollArea {
+                background-color: #0a0a0a;
+                border: none;
+            }
+            QScrollBar:vertical {
+                background: #1a1a1a;
+                width: 10px;
+                border-radius: 5px;
+            }
+            QScrollBar::handle:vertical {
+                background: #3a3a3a;
+                border-radius: 5px;
+            }
+        """)
+
+        content_widget = QWidget()
+        content_layout = QVBoxLayout(content_widget)
+        content_layout.setContentsMargins(30, 30, 30, 30)
+        content_layout.setSpacing(30)
+
+        # Page title
+        title_label = QLabel("Settings")
+        title_label.setStyleSheet("font-size: 32px; font-weight: bold; color: #fff;")
+        content_layout.addWidget(title_label)
+
+        subtitle_label = QLabel("Configure system preferences and parameters")
+        subtitle_label.setStyleSheet("font-size: 14px; color: #999; margin-bottom: 20px;")
+        content_layout.addWidget(subtitle_label)
+
+        # Camera Configuration section
+        camera_config_widget = self.create_camera_config_section()
+        content_layout.addWidget(camera_config_widget)
+
+        # Detection Parameters section
+        detection_params_widget = self.create_detection_params_section()
+        content_layout.addWidget(detection_params_widget)
+
+        content_layout.addStretch()
+
+        scroll_area.setWidget(content_widget)
+        main_layout.addWidget(scroll_area, stretch=1)
+
+        return main_widget
+
+    def create_settings_menu(self):
+        """Create the left settings menu."""
+        menu = QFrame()
+        menu.setFixedWidth(280)
+        menu.setStyleSheet("""
+            QFrame {
+                background-color: #0f0f0f;
+                border-right: 1px solid #1a1a1a;
+            }
+        """)
+
+        menu_layout = QVBoxLayout(menu)
+        menu_layout.setContentsMargins(15, 20, 15, 20)
+        menu_layout.setSpacing(5)
+
+        # Create menu buttons
+        menu_items = [
+            ("📷", "Camera"),
+            ("🔔", "Notifications"),
+            ("💻", "System"),
+            ("📡", "Network"),
+            ("💾", "Database"),
+            ("🔒", "Security"),
+            ("👤", "User")
+        ]
+
+        for icon, text in menu_items:
+            btn = self.create_settings_menu_button(icon, text, text == "Camera")
+            menu_layout.addWidget(btn)
+
+        menu_layout.addStretch()
+
+        return menu
+
+    def create_settings_menu_button(self, icon, text, is_active=False):
+        """Create a settings menu button."""
+        btn = QPushButton(f"{icon}  {text}")
+        btn.setFixedHeight(45)
+        btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {'#0066ff' if is_active else 'transparent'};
+                color: #fff;
+                border: none;
+                border-radius: 8px;
+                text-align: left;
+                padding-left: 15px;
+                font-size: 14px;
+            }}
+            QPushButton:hover {{
+                background-color: {'#0052cc' if is_active else '#1a1a1a'};
+            }}
+        """)
+        return btn
+
+    def create_camera_config_section(self):
+        """Create the Camera Configuration section."""
+        section = QWidget()
+        section.setStyleSheet("""
+            QWidget {
+                background-color: #121212;
+                border-radius: 12px;
+            }
+        """)
+        section_layout = QVBoxLayout(section)
+        section_layout.setContentsMargins(25, 25, 25, 25)
+        section_layout.setSpacing(20)
+
+        # Section title
+        title = QLabel("Camera Configuration")
+        title.setStyleSheet("font-size: 20px; font-weight: bold; color: #fff;")
+        section_layout.addWidget(title)
+
+        # Resolution and Frame Rate row
+        res_fps_layout = QHBoxLayout()
+        res_fps_layout.setSpacing(20)
+
+        # Resolution
+        res_group = QVBoxLayout()
+        res_label = QLabel("Resolution")
+        res_label.setStyleSheet("color: #999; font-size: 13px; margin-bottom: 8px;")
+        res_group.addWidget(res_label)
+
+        self.resolution_combo = QComboBox()
+        self.resolution_combo.addItems([
+            "1920 x 1080 (Full HD)",
+            "1280 x 720 (HD)",
+            "640 x 480 (VGA)"
+        ])
+        self.resolution_combo.setCurrentText(self.resolution)
+        self.resolution_combo.setStyleSheet(self.get_combobox_style())
+        self.resolution_combo.setFixedHeight(45)
+        res_group.addWidget(self.resolution_combo)
+        res_fps_layout.addLayout(res_group, stretch=1)
+
+        # Frame Rate
+        fps_group = QVBoxLayout()
+        fps_label = QLabel("Frame Rate")
+        fps_label.setStyleSheet("color: #999; font-size: 13px; margin-bottom: 8px;")
+        fps_group.addWidget(fps_label)
+
+        self.fps_combo = QComboBox()
+        self.fps_combo.addItems(["60 FPS", "30 FPS", "15 FPS"])
+        self.fps_combo.setCurrentText(self.frame_rate)
+        self.fps_combo.setStyleSheet(self.get_combobox_style())
+        self.fps_combo.setFixedHeight(45)
+        fps_group.addWidget(self.fps_combo)
+        res_fps_layout.addLayout(fps_group, stretch=1)
+
+        section_layout.addLayout(res_fps_layout)
+
+        # Exposure and Brightness sliders row
+        exp_bright_layout = QHBoxLayout()
+        exp_bright_layout.setSpacing(20)
+
+        exposure_group = self.create_slider_group("Exposure", self.exposure_value)
+        exp_bright_layout.addLayout(exposure_group, stretch=1)
+
+        brightness_group = self.create_slider_group("Brightness", self.brightness_value)
+        exp_bright_layout.addLayout(brightness_group, stretch=1)
+
+        section_layout.addLayout(exp_bright_layout)
+
+        # Contrast and Saturation sliders row
+        con_sat_layout = QHBoxLayout()
+        con_sat_layout.setSpacing(20)
+
+        contrast_group = self.create_slider_group("Contrast", self.contrast_value)
+        con_sat_layout.addLayout(contrast_group, stretch=1)
+
+        saturation_group = self.create_slider_group("Saturation", self.saturation_value)
+        con_sat_layout.addLayout(saturation_group, stretch=1)
+
+        section_layout.addLayout(con_sat_layout)
+
+        # Checkboxes
+        self.autofocus_checkbox = QCheckBox("Enable auto-focus")
+        self.autofocus_checkbox.setChecked(self.auto_focus_enabled)
+        self.autofocus_checkbox.setStyleSheet(self.get_checkbox_style())
+        section_layout.addWidget(self.autofocus_checkbox)
+
+        self.stabilization_checkbox = QCheckBox("Enable image stabilization")
+        self.stabilization_checkbox.setChecked(self.stabilization_enabled)
+        self.stabilization_checkbox.setStyleSheet(self.get_checkbox_style())
+        section_layout.addWidget(self.stabilization_checkbox)
+
+        return section
+
+    def create_detection_params_section(self):
+        """Create the Detection Parameters section."""
+        section = QWidget()
+        section.setStyleSheet("""
+            QWidget {
+                background-color: #121212;
+                border-radius: 12px;
+            }
+        """)
+        section_layout = QVBoxLayout(section)
+        section_layout.setContentsMargins(25, 25, 25, 25)
+        section_layout.setSpacing(20)
+
+        # Section title
+        title = QLabel("Detection Parameters")
+        title.setStyleSheet("font-size: 20px; font-weight: bold; color: #fff;")
+        section_layout.addWidget(title)
+
+        # Confidence Threshold
+        conf_label = QLabel("Confidence Threshold (%)")
+        conf_label.setStyleSheet("color: #999; font-size: 13px; margin-bottom: 8px;")
+        section_layout.addWidget(conf_label)
+
+        self.confidence_input = QLineEdit(str(self.confidence_threshold))
+        self.confidence_input.setStyleSheet(self.get_input_style())
+        self.confidence_input.setFixedHeight(50)
+        section_layout.addWidget(self.confidence_input)
+
+        # Minimum Defect Size
+        defect_label = QLabel("Minimum Defect Size (px)")
+        defect_label.setStyleSheet("color: #999; font-size: 13px; margin-bottom: 8px; margin-top: 10px;")
+        section_layout.addWidget(defect_label)
+
+        self.defect_size_input = QLineEdit(str(self.min_defect_size))
+        self.defect_size_input.setStyleSheet(self.get_input_style())
+        self.defect_size_input.setFixedHeight(50)
+        section_layout.addWidget(self.defect_size_input)
+
+        return section
+
+    def create_slider_group(self, label_text, value):
+        """Create a slider group with label and slider."""
+        group = QVBoxLayout()
+
+        label = QLabel(label_text)
+        label.setStyleSheet("color: #999; font-size: 13px; margin-bottom: 8px;")
+        group.addWidget(label)
+
+        slider = QSlider(Qt.Orientation.Horizontal)
+        slider.setMinimum(0)
+        slider.setMaximum(100)
+        slider.setValue(value)
+        slider.setStyleSheet(self.get_slider_style())
+        group.addWidget(slider)
+
+        return group
+
+    def get_combobox_style(self):
+        """Get stylesheet for combo boxes."""
+        return """
+            QComboBox {
+                background-color: #1a1a1a;
+                color: #fff;
+                border: 1px solid #2a2a2a;
+                border-radius: 8px;
+                padding: 10px 15px;
+                font-size: 14px;
+            }
+            QComboBox:hover {
+                border: 1px solid #3a3a3a;
+            }
+            QComboBox::drop-down {
+                border: none;
+                padding-right: 10px;
+            }
+            QComboBox::down-arrow {
+                image: none;
+                border-left: 5px solid transparent;
+                border-right: 5px solid transparent;
+                border-top: 5px solid #999;
+                margin-right: 10px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #1a1a1a;
+                color: #fff;
+                selection-background-color: #0066ff;
+                border: 1px solid #2a2a2a;
+                border-radius: 8px;
+                padding: 5px;
+            }
+        """
+
+    def get_checkbox_style(self):
+        """Get stylesheet for checkboxes."""
+        return """
+            QCheckBox {
+                color: #fff;
+                font-size: 14px;
+                spacing: 10px;
+            }
+            QCheckBox::indicator {
+                width: 20px;
+                height: 20px;
+                border-radius: 4px;
+                border: 2px solid #3a3a3a;
+                background-color: #1a1a1a;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #cc44ff;
+                border: 2px solid #cc44ff;
+                image: none;
+            }
+            QCheckBox::indicator:checked:after {
+                content: "✓";
+            }
+        """
+
+    def get_input_style(self):
+        """Get stylesheet for text input fields."""
+        return """
+            QLineEdit {
+                background-color: #1a1a1a;
+                color: #fff;
+                border: 1px solid #2a2a2a;
+                border-radius: 8px;
+                padding: 12px 15px;
+                font-size: 14px;
+            }
+            QLineEdit:focus {
+                border: 1px solid #0066ff;
+            }
+        """
 
     def create_sidebar(self):
         """Create the left sidebar with navigation buttons."""
@@ -195,32 +561,47 @@ class VideoDisplayWidget(QMainWindow):
         sidebar_layout.setContentsMargins(10, 20, 10, 20)
         sidebar_layout.setSpacing(10)
 
+        # Store buttons for group management
+        self.sidebar_buttons = []
+
         # Camera button (active by default)
         camera_btn = SidebarButton("📷")
         camera_btn.setChecked(True)
+        camera_btn.clicked.connect(lambda: self.switch_page(0, camera_btn))
         sidebar_layout.addWidget(camera_btn)
+        self.sidebar_buttons.append(camera_btn)
 
         # Capture button
         capture_btn = SidebarButton("📸")
+        capture_btn.clicked.connect(lambda: self.switch_page(0, capture_btn))
         sidebar_layout.addWidget(capture_btn)
+        self.sidebar_buttons.append(capture_btn)
 
         # Database button
         database_btn = SidebarButton("💾")
+        database_btn.clicked.connect(lambda: self.switch_page(0, database_btn))
         sidebar_layout.addWidget(database_btn)
+        self.sidebar_buttons.append(database_btn)
 
         # Chart button
         chart_btn = SidebarButton("📊")
+        chart_btn.clicked.connect(lambda: self.switch_page(0, chart_btn))
         sidebar_layout.addWidget(chart_btn)
+        self.sidebar_buttons.append(chart_btn)
 
         # Document button
         document_btn = SidebarButton("📄")
+        document_btn.clicked.connect(lambda: self.switch_page(0, document_btn))
         sidebar_layout.addWidget(document_btn)
+        self.sidebar_buttons.append(document_btn)
 
         sidebar_layout.addStretch()
 
         # Settings button at bottom
         settings_btn = SidebarButton("⚙️")
+        settings_btn.clicked.connect(lambda: self.switch_page(1, settings_btn))
         sidebar_layout.addWidget(settings_btn)
+        self.sidebar_buttons.append(settings_btn)
 
         # Power button at very bottom
         power_btn = SidebarButton("⏻")
@@ -228,6 +609,14 @@ class VideoDisplayWidget(QMainWindow):
         sidebar_layout.addWidget(power_btn)
 
         return sidebar
+
+    def switch_page(self, page_index, clicked_button):
+        """Switch to a different page in the stacked widget."""
+        self.stacked_widget.setCurrentIndex(page_index)
+
+        # Update button states
+        for btn in self.sidebar_buttons:
+            btn.setChecked(btn == clicked_button)
 
     def create_bottom_panel(self):
         """Create the bottom control panel with sliders and buttons."""
