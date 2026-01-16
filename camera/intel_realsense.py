@@ -68,9 +68,13 @@ class IntelRealSenseD435i:
         Stop the camera pipeline.
         """
         if self.is_running:
-            self.pipeline.stop()
-            self.is_running = False
-            print("Stopped Intel RealSense camera")
+            try:
+                self.pipeline.stop()
+                print("Stopped Intel RealSense camera")
+            except Exception as e:
+                print(f"Error stopping Intel RealSense camera: {e}")
+            finally:
+                self.is_running = False
 
     def get_bgr_frame(self):
         """

@@ -64,10 +64,17 @@ class Camera:
 
     def release_cap(self, cap):
         """Release the given video capture object."""
-        if isinstance(cap, cv2.VideoCapture):
-            cap.release()
-        elif isinstance(cap, IntelRealSenseD435i):
-            cap.stop()
+        try:
+            if isinstance(cap, cv2.VideoCapture):
+                if cap.isOpened():
+                    cap.release()
+                print("Released USB camera")
+            elif isinstance(cap, IntelRealSenseD435i):
+                cap.stop()
+            else:
+                print(f"Unknown capture object type for release: {type(cap)}")
+        except Exception as e:
+            print(f"Error releasing camera: {e}")
 
 
 if __name__ == "__main__":

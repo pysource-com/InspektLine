@@ -338,6 +338,39 @@ class VideoDisplayWidget(QMainWindow):
         title.setStyleSheet("font-size: 20px; font-weight: bold; color: #fff;")
         section_layout.addWidget(title)
 
+        # Camera Type selector
+        camera_type_label = QLabel("Camera Type")
+        camera_type_label.setStyleSheet("color: #999; font-size: 13px; margin-bottom: 8px;")
+        section_layout.addWidget(camera_type_label)
+
+        self.camera_type_combo = QComboBox()
+        self.camera_type_combo.addItems([
+            "USB Webcam",
+            "Intel RealSense"
+        ])
+        # Set current selection based on camera_type
+        if self.camera_type == "intel-realsense":
+            self.camera_type_combo.setCurrentText("Intel RealSense")
+        else:
+            self.camera_type_combo.setCurrentText("USB Webcam")
+
+        self.camera_type_combo.setStyleSheet(self.get_combobox_style())
+        self.camera_type_combo.setFixedHeight(45)
+        self.camera_type_combo.currentTextChanged.connect(self.on_camera_type_changed)
+        section_layout.addWidget(self.camera_type_combo)
+
+        # Camera Device selector (for USB webcams)
+        camera_device_label = QLabel("Camera Device")
+        camera_device_label.setStyleSheet("color: #999; font-size: 13px; margin-bottom: 8px; margin-top: 10px;")
+        section_layout.addWidget(camera_device_label)
+
+        self.camera_device_combo = QComboBox()
+        self.populate_camera_devices()
+        self.camera_device_combo.setStyleSheet(self.get_combobox_style())
+        self.camera_device_combo.setFixedHeight(45)
+        self.camera_device_combo.currentIndexChanged.connect(self.on_camera_device_changed)
+        section_layout.addWidget(self.camera_device_combo)
+
         # Resolution and Frame Rate row
         res_fps_layout = QHBoxLayout()
         res_fps_layout.setSpacing(20)
@@ -829,19 +862,88 @@ class VideoDisplayWidget(QMainWindow):
 
     def refresh_camera(self):
         """Refresh camera connection."""
+        print(f"Refreshing camera: switching to type={self.camera_type}, index={self.camera_index}")
+
+        # Stop the timer first
         self.stop_video()
+
+        # Release camera resources
         if self.cap is not None:
-            self.camera.release_cap(self.cap)
-            self.cap = None
-        self.start_video()
+            try:
+                print(f"Releasing camera of type: {type(self.cap)}")
+                self.camera.release_cap(self.cap)
+                print("Camera released successfully")
+            except Exception as e:
+                print(f"Error releasing camera: {e}")
+            finally:
+                self.cap = None
+
+        # Use QTimer for non-blocking delay to ensure camera is fully released
+        # Increased delay for RealSense cameras which need more time
+        QTimer.singleShot(500, self.start_video)
+
+
+    def on_camera_type_changed(self, text):
+        """Handle camera type change."""
+        # Map display text to camera type
+        if text == "Intel RealSense":
+            new_camera_type = "intel-realsense"
+        else:
+            new_camera_type = "usb-standard"
+
+        # Only restart camera if type actually changed
+        if new_camera_type != self.camera_type:
+            self.camera_type = new_camera_type
+            # Restart the camera with new type
+            self.refresh_camera()
+
+    def populate_camera_devices(self):
+        """Populate the camera device dropdown with available cameras."""
+        self.camera_device_combo.clear()
+
+        try:
+            # Get list of available cameras
+            cameras = self.camera.get_cameras_list()
+
+            if cameras:
+                for cam in cameras:
+                    self.camera_device_combo.addItem(f"Camera {cam['index']}: {cam['name']}", cam['index'])
+
+                # Set current selection
+                current_index = self.camera_device_combo.findData(self.camera_index)
+                if current_index >= 0:
+                    self.camera_device_combo.setCurrentIndex(current_index)
+            else:
+                # No cameras found, add default options
+                self.camera_device_combo.addItem("Camera 0 (Default)", 0)
+                self.camera_device_combo.addItem("Camera 1", 1)
+        except Exception as e:
+            # Fallback if camera enumeration fails
+            print(f"Failed to enumerate cameras: {e}")
+            self.camera_device_combo.addItem("Camera 0 (Default)", 0)
+            self.camera_device_combo.addItem("Camera 1", 1)
+
+    def on_camera_device_changed(self, index):
+        """Handle camera device change."""
+        new_camera_index = self.camera_device_combo.currentData()
+
+        # Only restart camera if index actually changed
+        if new_camera_index is not None and new_camera_index != self.camera_index:
+            self.camera_index = new_camera_index
+            # Restart the camera with new device
+            self.refresh_camera()
 
     def start_video(self):
         """Start capturing and displaying video."""
+        # Always try to load camera if cap is None
         if self.cap is None:
             try:
+                print(f"Loading camera: index={self.camera_index}, type={self.camera_type}")
                 self.cap = self.camera.load_cap(self.camera_index, self.camera_type)
+                print(f"Camera loaded successfully")
             except Exception as e:
-                print(f"Error: Could not open camera {self.camera_index}: {e}")
+                print(f"Error: Could not open camera {self.camera_index} (type: {self.camera_type}): {e}")
+                self.cap = None
                 return
 
         # Set up timer to update frames
@@ -849,11 +951,13 @@ class VideoDisplayWidget(QMainWindow):
             self.timer = QTimer()
             self.timer.timeout.connect(self.update_frame)
 
-        self.timer.start(30)  # Update every 30ms (~33 FPS)
+        # Start the timer if not already running
+        if not self.timer.isActive():
+            self.timer.start(30)  # Update every 30ms (~33 FPS)
 
     def stop_video(self):
         """Stop capturing and displaying video."""
-        if self.timer is not None:
+        if self.timer is not None and self.timer.isActive():
             self.timer.stop()
 
     def update_frame(self):
