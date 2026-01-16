@@ -58,6 +58,7 @@ class VideoDisplayWidget(QMainWindow):
         self.exposure_value = 50
         self.contrast_value = 75
         self.current_page = "camera"  # Track current page
+        self.current_frame = None  # Store the current frame for dataset capture
 
         # Settings values
         self.brightness_value = 50
@@ -660,21 +661,47 @@ class VideoDisplayWidget(QMainWindow):
 
     def capture_sample(self, label_type):
         """Capture a sample with the given label."""
+        import cv2
+        from datetime import datetime
+        from pathlib import Path
+
+        if self.current_frame is None:
+            print("Cannot capture: no frame available")
+            return
+
         print(f"Capturing sample: {label_type}")
 
-        # Update counters
-        self.total_samples += 1
+        # Setup storage paths
+        storage_path = Path("storage/dataset")
+        ok_path = storage_path / "ok"
+        not_ok_path = storage_path / "not_ok"
+
+        # Create directories if they don't exist
+        ok_path.mkdir(parents=True, exist_ok=True)
+        not_ok_path.mkdir(parents=True, exist_ok=True)
+
+        # Generate timestamp filename
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
+
+        # Save based on label type
         if label_type == "OK":
+            save_path = ok_path / f"ok_{timestamp}.jpg"
             self.ok_samples += 1
-        else:
+        else:  # NOT_OK
+            save_path = not_ok_path / f"notok_{timestamp}.jpg"
             self.not_ok_samples += 1
+
+        # Save the image
+        cv2.imwrite(str(save_path), self.current_frame)
+        self.total_samples += 1
+
+        print(f"Saved sample: {save_path}")
 
         # Update UI
         self.update_dataset_statistics()
 
 
-        # TODO: Save the actual frame from camera
-        # This would integrate with the dataset module
+        # TODO: Add to gallery display if gallery widget exists
         print(f"Total: {self.total_samples}, OK: {self.ok_samples}, NOT OK: {self.not_ok_samples}")
 
     def update_dataset_statistics(self):
@@ -1457,6 +1484,9 @@ class VideoDisplayWidget(QMainWindow):
             ret, frame = self.camera.read_frame(self.cap)
 
             if ret:
+                # Store the current frame for dataset capture
+                self.current_frame = frame.copy()
+
                 # Convert the frame from BGR (OpenCV) to RGB (Qt) using numpy
                 frame_rgb = frame[..., ::-1].copy()
 
@@ -1486,6 +1516,16 @@ class VideoDisplayWidget(QMainWindow):
                         Qt.TransformationMode.SmoothTransformation
                     )
                     self.dataset_video_label.setPixmap(scaled_pixmap_dataset)
+
+                # Enable dataset capture buttons if they exist and are on dataset page
+                if hasattr(self, 'ok_button') and hasattr(self, 'not_ok_button'):
+                    if self.stacked_widget.currentIndex() == 1:  # Dataset page
+                        self.ok_button.setEnabled(True)
+                        self.not_ok_button.setEnabled(True)
+
+    def get_current_frame(self):
+        """Get the current camera frame."""
+        return self.current_frame
 
     def closeEvent(self, event):
         """Clean up when the window is closed."""
