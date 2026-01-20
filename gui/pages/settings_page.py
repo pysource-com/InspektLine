@@ -1,29 +1,29 @@
-"""Settings page."""
+"""Settings page with modular architecture."""
 
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-                                QPushButton, QComboBox, QCheckBox, QLineEdit,
-                                QSlider, QScrollArea, QFrame)
+                                QPushButton, QScrollArea, QFrame, QStackedWidget)
 from PySide6.QtCore import Qt
-from gui.styles import StyleSheets, DarkTheme
+from gui.styles import DarkTheme
+from gui.pages.settings import (
+    CameraSettings, DetectionSettings, NotificationsSettings,
+    SystemSettings, NetworkSettings, DatabaseSettings,
+    SecuritySettings, UserSettings
+)
 
 
 class SettingsPage(QWidget):
-    """Settings configuration page."""
+    """Settings configuration page with modular sections."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.parent_window = parent
 
-        # Initialize UI elements
-        self.camera_type_combo = None
-        self.camera_device_combo = None
-        self.resolution_combo = None
-        self.fps_combo = None
-        self.autofocus_checkbox = None
-        self.manual_focus_slider = None
-        self.focus_value_label = None
-        self.confidence_input = None
-        self.defect_size_input = None
+        # Store references to setting sections
+        self.sections = {}
+        self.current_section = "camera"
+
+        # Menu buttons reference
+        self.menu_buttons = {}
 
         self.init_ui()
 
@@ -37,42 +37,19 @@ class SettingsPage(QWidget):
         left_menu = self.create_settings_menu()
         main_layout.addWidget(left_menu)
 
-        # Right content
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setStyleSheet(f"""
-            QScrollArea {{
+        # Right content with stacked widget for different sections
+        self.content_stack = QStackedWidget()
+        self.content_stack.setStyleSheet(f"""
+            QStackedWidget {{
                 background-color: {DarkTheme.BG_PRIMARY};
                 border: none;
             }}
         """)
 
-        content_widget = QWidget()
-        content_layout = QVBoxLayout(content_widget)
-        content_layout.setContentsMargins(30, 30, 30, 30)
-        content_layout.setSpacing(30)
+        # Create all setting sections
+        self.create_all_sections()
 
-        # Title
-        title = QLabel("Settings")
-        title.setStyleSheet("font-size: 32px; font-weight: bold; color: #fff;")
-        content_layout.addWidget(title)
-
-        subtitle = QLabel("Configure system preferences and parameters")
-        subtitle.setStyleSheet(f"font-size: 14px; color: {DarkTheme.TEXT_SECONDARY}; margin-bottom: 20px;")
-        content_layout.addWidget(subtitle)
-
-        # Camera Configuration
-        camera_config = self.create_camera_config_section()
-        content_layout.addWidget(camera_config)
-
-        # Detection Parameters
-        detection_params = self.create_detection_params_section()
-        content_layout.addWidget(detection_params)
-
-        content_layout.addStretch()
-
-        scroll_area.setWidget(content_widget)
-        main_layout.addWidget(scroll_area, stretch=1)
+        main_layout.addWidget(self.content_stack, stretch=1)
 
     def create_settings_menu(self):
         """Create the left settings menu."""
@@ -89,29 +66,43 @@ class SettingsPage(QWidget):
         menu_layout.setContentsMargins(15, 20, 15, 20)
         menu_layout.setSpacing(5)
 
-        # Menu items
+        # Menu items configuration
         menu_items = [
-            ("📷", "Camera", True),
-            ("🔔", "Notifications", False),
-            ("💻", "System", False),
-            ("📡", "Network", False),
-            ("💾", "Database", False),
-            ("🔒", "Security", False),
-            ("👤", "User", False)
+            ("📷", "Camera", "camera", True),
+            ("🔍", "Detection", "detection", False),
+            ("🔔", "Notifications", "notifications", False),
+            ("💻", "System", "system", False),
+            ("📡", "Network", "network", False),
+            ("💾", "Database", "database", False),
+            ("🔒", "Security", "security", False),
+            ("👤", "User", "user", False)
         ]
 
-        for icon, text, is_active in menu_items:
-            btn = self.create_menu_button(icon, text, is_active)
+        for icon, text, section_id, is_active in menu_items:
+            btn = self.create_menu_button(icon, text, section_id, is_active)
+            self.menu_buttons[section_id] = btn
             menu_layout.addWidget(btn)
 
         menu_layout.addStretch()
 
         return menu
 
-    def create_menu_button(self, icon, text, is_active=False):
+    def create_menu_button(self, icon, text, section_id, is_active=False):
         """Create a settings menu button."""
         btn = QPushButton(f"{icon}  {text}")
         btn.setFixedHeight(45)
+        btn.setCheckable(True)
+        btn.setChecked(is_active)
+
+        self._update_button_style(btn, is_active)
+
+        # Connect to section switcher
+        btn.clicked.connect(lambda: self.switch_section(section_id))
+
+        return btn
+
+    def _update_button_style(self, btn, is_active):
+        """Update button style based on active state."""
         bg_color = DarkTheme.PRIMARY if is_active else "transparent"
         hover_color = DarkTheme.PRIMARY_HOVER if is_active else DarkTheme.BG_INPUT
         btn.setStyleSheet(f"""
@@ -128,173 +119,160 @@ class SettingsPage(QWidget):
                 background-color: {hover_color};
             }}
         """)
-        return btn
 
-    def create_camera_config_section(self):
-        """Create the Camera Configuration section."""
-        section = QWidget()
-        section.setStyleSheet(f"""
-            QWidget {{
-                background-color: {DarkTheme.BG_CARD};
-                border-radius: 12px;
+    def switch_section(self, section_id):
+        """
+        Switch to a different settings section.
+
+        Args:
+            section_id: ID of the section to display
+        """
+        # Update active button
+        for btn_id, btn in self.menu_buttons.items():
+            is_active = btn_id == section_id
+            btn.setChecked(is_active)
+            self._update_button_style(btn, is_active)
+
+        # Switch content
+        if section_id in self.sections:
+            self.content_stack.setCurrentWidget(self.sections[section_id])
+            self.current_section = section_id
+
+    def create_all_sections(self):
+        """Create all settings sections."""
+        sections_config = [
+            ("camera", "Camera", CameraSettings),
+            ("detection", "Detection Parameters", DetectionSettings),
+            ("notifications", "Notifications", NotificationsSettings),
+            ("system", "System", SystemSettings),
+            ("network", "Network", NetworkSettings),
+            ("database", "Database", DatabaseSettings),
+            ("security", "Security", SecuritySettings),
+            ("user", "User Profile", UserSettings),
+        ]
+
+        for section_id, title, section_class in sections_config:
+            page = self.create_section_page(section_id, title, section_class)
+            self.sections[section_id] = page
+            self.content_stack.addWidget(page)
+
+    def create_section_page(self, section_id, title, section_class):
+        """
+        Create a section page with scroll area.
+
+        Args:
+            section_id: Section identifier
+            title: Section title
+            section_class: Class to instantiate for the section
+
+        Returns:
+            QWidget: The section page
+        """
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setStyleSheet(f"""
+            QScrollArea {{
+                background-color: {DarkTheme.BG_PRIMARY};
+                border: none;
             }}
         """)
-        layout = QVBoxLayout(section)
-        layout.setContentsMargins(25, 25, 25, 25)
-        layout.setSpacing(20)
+
+        content_widget = QWidget()
+        content_layout = QVBoxLayout(content_widget)
+        content_layout.setContentsMargins(30, 30, 30, 30)
+        content_layout.setSpacing(30)
 
         # Title
-        title = QLabel("Camera Configuration")
-        title.setStyleSheet("font-size: 20px; font-weight: bold; color: #fff;")
-        layout.addWidget(title)
+        page_title = QLabel(title)
+        page_title.setStyleSheet("font-size: 32px; font-weight: bold; color: #fff;")
+        content_layout.addWidget(page_title)
 
-        # Camera Type
-        camera_type_label = QLabel("Camera Type")
-        camera_type_label.setStyleSheet(f"color: {DarkTheme.TEXT_SECONDARY}; font-size: 13px; margin-bottom: 8px;")
-        layout.addWidget(camera_type_label)
+        # Subtitle
+        subtitle = QLabel(f"Configure {title.lower()} settings")
+        subtitle.setStyleSheet(
+            f"font-size: 14px; color: {DarkTheme.TEXT_SECONDARY}; margin-bottom: 20px;"
+        )
+        content_layout.addWidget(subtitle)
 
-        self.camera_type_combo = QComboBox()
-        self.camera_type_combo.addItems(["USB Webcam", "Intel RealSense"])
-        self.camera_type_combo.setStyleSheet(StyleSheets.get_combobox_style())
-        self.camera_type_combo.setFixedHeight(45)
-        if self.parent_window:
-            self.camera_type_combo.currentTextChanged.connect(self.parent_window.on_camera_type_changed)
-        layout.addWidget(self.camera_type_combo)
+        # Section content
+        section_widget = section_class(self.parent_window)
+        content_layout.addWidget(section_widget)
 
-        # Camera Device
-        camera_device_label = QLabel("Camera Device")
-        camera_device_label.setStyleSheet(f"color: {DarkTheme.TEXT_SECONDARY}; font-size: 13px; margin-bottom: 8px; margin-top: 10px;")
-        layout.addWidget(camera_device_label)
+        content_layout.addStretch()
 
-        self.camera_device_combo = QComboBox()
-        self.camera_device_combo.setStyleSheet(StyleSheets.get_combobox_style())
-        self.camera_device_combo.setFixedHeight(45)
-        if self.parent_window:
-            self.camera_device_combo.currentIndexChanged.connect(self.parent_window.on_camera_device_changed)
-        layout.addWidget(self.camera_device_combo)
+        scroll_area.setWidget(content_widget)
+        return scroll_area
 
-        # Resolution and Frame Rate
-        res_fps_layout = QHBoxLayout()
-        res_fps_layout.setSpacing(20)
+    # Legacy compatibility methods for backward compatibility with existing code
+    @property
+    def camera_type_combo(self):
+        """Get camera type combo box."""
+        return self.sections.get("camera").widget().findChild(CameraSettings).camera_type_combo if "camera" in self.sections else None
 
-        # Resolution
-        res_group = QVBoxLayout()
-        res_label = QLabel("Resolution")
-        res_label.setStyleSheet(f"color: {DarkTheme.TEXT_SECONDARY}; font-size: 13px; margin-bottom: 8px;")
-        res_group.addWidget(res_label)
+    @property
+    def camera_device_combo(self):
+        """Get camera device combo box."""
+        return self.sections.get("camera").widget().findChild(CameraSettings).camera_device_combo if "camera" in self.sections else None
 
-        self.resolution_combo = QComboBox()
-        self.resolution_combo.addItems([
-            "1920 x 1080 (Full HD)",
-            "1280 x 720 (HD)",
-            "640 x 480 (VGA)"
-        ])
-        self.resolution_combo.setStyleSheet(StyleSheets.get_combobox_style())
-        self.resolution_combo.setFixedHeight(45)
-        res_group.addWidget(self.resolution_combo)
-        res_fps_layout.addLayout(res_group, stretch=1)
+    @property
+    def resolution_combo(self):
+        """Get resolution combo box."""
+        return self.sections.get("camera").widget().findChild(CameraSettings).resolution_combo if "camera" in self.sections else None
 
-        # Frame Rate
-        fps_group = QVBoxLayout()
-        fps_label = QLabel("Frame Rate")
-        fps_label.setStyleSheet(f"color: {DarkTheme.TEXT_SECONDARY}; font-size: 13px; margin-bottom: 8px;")
-        fps_group.addWidget(fps_label)
+    @property
+    def fps_combo(self):
+        """Get FPS combo box."""
+        return self.sections.get("camera").widget().findChild(CameraSettings).fps_combo if "camera" in self.sections else None
 
-        self.fps_combo = QComboBox()
-        self.fps_combo.addItems(["60 FPS", "30 FPS", "15 FPS"])
-        self.fps_combo.setStyleSheet(StyleSheets.get_combobox_style())
-        self.fps_combo.setFixedHeight(45)
-        fps_group.addWidget(self.fps_combo)
-        res_fps_layout.addLayout(fps_group, stretch=1)
+    @property
+    def autofocus_checkbox(self):
+        """Get autofocus checkbox."""
+        return self.sections.get("camera").widget().findChild(CameraSettings).autofocus_checkbox if "camera" in self.sections else None
 
-        layout.addLayout(res_fps_layout)
+    @property
+    def manual_focus_slider(self):
+        """Get manual focus slider."""
+        return self.sections.get("camera").widget().findChild(CameraSettings).manual_focus_slider if "camera" in self.sections else None
 
-        # Autofocus checkbox
-        self.autofocus_checkbox = QCheckBox("Enable auto-focus")
-        self.autofocus_checkbox.setChecked(False)  # Disabled by default
-        self.autofocus_checkbox.setStyleSheet(StyleSheets.get_checkbox_style())
-        if self.parent_window:
-            self.autofocus_checkbox.stateChanged.connect(self.parent_window.on_autofocus_changed)
-            self.autofocus_checkbox.stateChanged.connect(self._on_autofocus_toggled)
-        layout.addWidget(self.autofocus_checkbox)
+    @property
+    def focus_value_label(self):
+        """Get focus value label."""
+        return self.sections.get("camera").widget().findChild(CameraSettings).focus_value_label if "camera" in self.sections else None
 
-        # Manual Focus slider
-        manual_focus_label = QLabel("Manual Focus")
-        manual_focus_label.setStyleSheet(f"color: {DarkTheme.TEXT_SECONDARY}; font-size: 13px; margin-top: 15px; margin-bottom: 8px;")
-        layout.addWidget(manual_focus_label)
+    @property
+    def confidence_input(self):
+        """Get confidence input."""
+        return self.sections.get("detection").widget().findChild(DetectionSettings).confidence_input if "detection" in self.sections else None
 
-        focus_control_layout = QHBoxLayout()
-        focus_control_layout.setSpacing(15)
+    @property
+    def defect_size_input(self):
+        """Get defect size input."""
+        return self.sections.get("detection").widget().findChild(DetectionSettings).defect_size_input if "detection" in self.sections else None
 
-        self.manual_focus_slider = QSlider(Qt.Orientation.Horizontal)
-        self.manual_focus_slider.setMinimum(0)
-        self.manual_focus_slider.setMaximum(255)
-        self.manual_focus_slider.setValue(128)
-        self.manual_focus_slider.setStyleSheet(StyleSheets.get_slider_style())
-        self.manual_focus_slider.setEnabled(True)  # Enabled by default since autofocus is off
-        if self.parent_window:
-            self.manual_focus_slider.valueChanged.connect(self.parent_window.on_manual_focus_changed)
-        focus_control_layout.addWidget(self.manual_focus_slider, stretch=1)
+    def get_all_settings(self) -> dict:
+        """
+        Get all settings from all sections.
 
-        self.focus_value_label = QLabel("128")
-        self.focus_value_label.setStyleSheet(f"color: {DarkTheme.TEXT_SECONDARY}; font-size: 13px; min-width: 35px;")
-        self.manual_focus_slider.valueChanged.connect(lambda v: self.focus_value_label.setText(str(v)))
-        focus_control_layout.addWidget(self.focus_value_label)
+        Returns:
+            dict: All settings organized by section
+        """
+        all_settings = {}
+        for section_id, section_widget in self.sections.items():
+            settings_widget = section_widget.widget().findChildren(QWidget)[0]
+            if hasattr(settings_widget, 'get_settings'):
+                all_settings[section_id] = settings_widget.get_settings()
+        return all_settings
 
-        layout.addLayout(focus_control_layout)
+    def load_all_settings(self, settings: dict):
+        """
+        Load settings into all sections.
 
-        # Info text
-        info_label = QLabel("Note: Manual focus is only available when auto-focus is disabled")
-        info_label.setStyleSheet(f"color: {DarkTheme.TEXT_SECONDARY}; font-size: 11px; font-style: italic; margin-top: 5px;")
-        info_label.setWordWrap(True)
-        layout.addWidget(info_label)
-
-
-        return section
-
-    def _on_autofocus_toggled(self, state):
-        """Handle autofocus checkbox toggle to enable/disable manual focus slider."""
-        is_autofocus_enabled = state == Qt.CheckState.Checked.value
-        # Enable manual focus slider only when autofocus is disabled
-        self.manual_focus_slider.setEnabled(not is_autofocus_enabled)
-
-    def create_detection_params_section(self):
-        """Create the Detection Parameters section."""
-        section = QWidget()
-        section.setStyleSheet(f"""
-            QWidget {{
-                background-color: {DarkTheme.BG_CARD};
-                border-radius: 12px;
-            }}
-        """)
-        layout = QVBoxLayout(section)
-        layout.setContentsMargins(25, 25, 25, 25)
-        layout.setSpacing(20)
-
-        # Title
-        title = QLabel("Detection Parameters")
-        title.setStyleSheet("font-size: 20px; font-weight: bold; color: #fff;")
-        layout.addWidget(title)
-
-        # Confidence Threshold
-        conf_label = QLabel("Confidence Threshold (%)")
-        conf_label.setStyleSheet(f"color: {DarkTheme.TEXT_SECONDARY}; font-size: 13px; margin-bottom: 8px;")
-        layout.addWidget(conf_label)
-
-        self.confidence_input = QLineEdit("85")
-        self.confidence_input.setStyleSheet(StyleSheets.get_input_style())
-        self.confidence_input.setFixedHeight(50)
-        layout.addWidget(self.confidence_input)
-
-        # Minimum Defect Size
-        defect_label = QLabel("Minimum Defect Size (px)")
-        defect_label.setStyleSheet(f"color: {DarkTheme.TEXT_SECONDARY}; font-size: 13px; margin-bottom: 8px; margin-top: 10px;")
-        layout.addWidget(defect_label)
-
-        self.defect_size_input = QLineEdit("10")
-        self.defect_size_input.setStyleSheet(StyleSheets.get_input_style())
-        self.defect_size_input.setFixedHeight(50)
-        layout.addWidget(self.defect_size_input)
-
-        return section
+        Args:
+            settings: Dictionary of settings organized by section
+        """
+        for section_id, section_settings in settings.items():
+            if section_id in self.sections:
+                section_widget = self.sections[section_id].widget().findChildren(QWidget)[0]
+                if hasattr(section_widget, 'load_settings'):
+                    section_widget.load_settings(section_settings)
 
