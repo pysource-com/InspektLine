@@ -5,6 +5,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QImage, QPixmap
 from camera.camera import Camera
+from gui.pages.settings_page import SettingsPage
 
 
 class SidebarButton(QPushButton):
@@ -913,63 +914,9 @@ class VideoDisplayWidget(QMainWindow):
         print(f"Loaded {len(recent_files)} existing samples from storage")
 
     def create_settings_page(self):
-        """Create the settings configuration page."""
-        main_widget = QWidget()
-        main_layout = QHBoxLayout(main_widget)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(0)
-
-        # Left settings menu
-        settings_menu = self.create_settings_menu()
-        main_layout.addWidget(settings_menu)
-
-        # Right content area with scroll
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setStyleSheet("""
-            QScrollArea {
-                background-color: #0a0a0a;
-                border: none;
-            }
-            QScrollBar:vertical {
-                background: #1a1a1a;
-                width: 10px;
-                border-radius: 5px;
-            }
-            QScrollBar::handle:vertical {
-                background: #3a3a3a;
-                border-radius: 5px;
-            }
-        """)
-
-        content_widget = QWidget()
-        content_layout = QVBoxLayout(content_widget)
-        content_layout.setContentsMargins(30, 30, 30, 30)
-        content_layout.setSpacing(30)
-
-        # Page title
-        title_label = QLabel("Settings")
-        title_label.setStyleSheet("font-size: 32px; font-weight: bold; color: #fff;")
-        content_layout.addWidget(title_label)
-
-        subtitle_label = QLabel("Configure system preferences and parameters")
-        subtitle_label.setStyleSheet("font-size: 14px; color: #999; margin-bottom: 20px;")
-        content_layout.addWidget(subtitle_label)
-
-        # Camera Configuration section
-        camera_config_widget = self.create_camera_config_section()
-        content_layout.addWidget(camera_config_widget)
-
-        # Detection Parameters section
-        detection_params_widget = self.create_detection_params_section()
-        content_layout.addWidget(detection_params_widget)
-
-        content_layout.addStretch()
-
-        scroll_area.setWidget(content_widget)
-        main_layout.addWidget(scroll_area, stretch=1)
-
-        return main_widget
+        """Create the settings configuration page using modular architecture."""
+        # Use the new modular SettingsPage with camera preview support
+        return SettingsPage(parent=self)
 
     def create_settings_menu(self):
         """Create the left settings menu."""
