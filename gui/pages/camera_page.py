@@ -1,7 +1,7 @@
 """Camera feed page."""
 
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-                                QPushButton, QSlider)
+                                QPushButton)
 from PySide6.QtCore import Qt
 from gui.components import VideoLabel
 from gui.styles import StyleSheets, DarkTheme
@@ -113,10 +113,60 @@ class CameraPage(QWidget):
         self.video_label = VideoLabel()
         video_layout.addWidget(self.video_label)
 
+        # Add info overlay at the bottom
+        info_overlay = self.create_info_overlay()
+        video_layout.addWidget(info_overlay)
+
         return video_container
 
+    def create_info_overlay(self):
+        """Create an info overlay showing frame details."""
+        overlay = QWidget()
+        overlay.setStyleSheet(f"""
+            QWidget {{
+                background-color: rgba(0, 0, 0, 180);
+                border-radius: 6px;
+            }}
+        """)
+        overlay.setMaximumHeight(40)
+
+        overlay_layout = QHBoxLayout(overlay)
+        overlay_layout.setContentsMargins(15, 8, 15, 8)
+        overlay_layout.setSpacing(20)
+
+        # Connection status indicator
+        self.status_indicator = QLabel("●")
+        self.status_indicator.setStyleSheet(f"color: {DarkTheme.SUCCESS}; font-size: 16px;")
+        overlay_layout.addWidget(self.status_indicator)
+
+        status_text = QLabel("Connected")
+        status_text.setStyleSheet(f"color: {DarkTheme.TEXT_PRIMARY}; font-size: 12px; font-weight: bold;")
+        overlay_layout.addWidget(status_text)
+
+        overlay_layout.addStretch()
+
+        # FPS counter
+        fps_label = QLabel("FPS:")
+        fps_label.setStyleSheet(f"color: {DarkTheme.TEXT_SECONDARY}; font-size: 11px;")
+        overlay_layout.addWidget(fps_label)
+
+        self.fps_value = QLabel("30")
+        self.fps_value.setStyleSheet(f"color: {DarkTheme.TEXT_PRIMARY}; font-size: 12px; font-weight: bold;")
+        overlay_layout.addWidget(self.fps_value)
+
+        # Resolution info
+        res_label = QLabel("Resolution:")
+        res_label.setStyleSheet(f"color: {DarkTheme.TEXT_SECONDARY}; font-size: 11px; margin-left: 15px;")
+        overlay_layout.addWidget(res_label)
+
+        self.resolution_value = QLabel("1920×1080")
+        self.resolution_value.setStyleSheet(f"color: {DarkTheme.TEXT_PRIMARY}; font-size: 12px; font-weight: bold;")
+        overlay_layout.addWidget(self.resolution_value)
+
+        return overlay
+
     def create_bottom_panel(self):
-        """Create the bottom control panel with sliders and buttons."""
+        """Create the bottom control panel with buttons."""
         panel = QWidget()
         panel.setStyleSheet(f"""
             QWidget {{
@@ -128,19 +178,6 @@ class CameraPage(QWidget):
         panel_layout.setContentsMargins(20, 15, 20, 15)
         panel_layout.setSpacing(15)
 
-        # Sliders row
-        sliders_layout = QHBoxLayout()
-        sliders_layout.setSpacing(30)
-
-        # Exposure slider
-        exposure_group = self.create_slider_group("Exposure", "Auto")
-        sliders_layout.addLayout(exposure_group, stretch=1)
-
-        # Contrast slider
-        contrast_group = self.create_slider_group("Contrast", None, show_value=True)
-        sliders_layout.addLayout(contrast_group, stretch=1)
-
-        panel_layout.addLayout(sliders_layout)
 
         # Buttons row
         buttons_layout = self.create_button_row()
@@ -148,37 +185,6 @@ class CameraPage(QWidget):
 
         return panel
 
-    def create_slider_group(self, label_text, suffix_text=None, show_value=False):
-        """Create a slider group with label."""
-        group = QVBoxLayout()
-
-        label_layout = QHBoxLayout()
-        label = QLabel(label_text)
-        label.setStyleSheet(f"color: {DarkTheme.TEXT_SECONDARY}; font-size: 14px;")
-        label_layout.addWidget(label)
-
-        if suffix_text:
-            suffix = QLabel(suffix_text)
-            suffix.setStyleSheet(f"color: {DarkTheme.TEXT_SECONDARY}; font-size: 14px;")
-            label_layout.addWidget(suffix)
-
-        label_layout.addStretch()
-
-        if show_value:
-            value_label = QLabel("75%")
-            value_label.setStyleSheet(f"color: {DarkTheme.TEXT_SECONDARY}; font-size: 14px;")
-            label_layout.addWidget(value_label)
-
-        group.addLayout(label_layout)
-
-        slider = QSlider(Qt.Orientation.Horizontal)
-        slider.setMinimum(0)
-        slider.setMaximum(100)
-        slider.setValue(75 if show_value else 50)
-        slider.setStyleSheet(StyleSheets.get_slider_style())
-        group.addWidget(slider)
-
-        return group
 
     def create_button_row(self):
         """Create the bottom button row."""

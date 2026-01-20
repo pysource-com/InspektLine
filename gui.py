@@ -58,6 +58,11 @@ class VideoDisplayWidget(QMainWindow):
         self.current_page = "camera"  # Track current page
         self.current_frame = None  # Store the current frame for dataset capture
 
+        # Camera info tracking
+        self.frame_count = 0
+        self.fps_update_counter = 0
+        self.fps_update_interval = 10  # Update FPS display every N frames
+
         # Settings values
         self.confidence_threshold = 85
         self.min_defect_size = 10
@@ -191,7 +196,7 @@ class VideoDisplayWidget(QMainWindow):
         header_layout.addLayout(control_buttons_layout)
         content_layout.addLayout(header_layout)
 
-        # Create video display frame with corner brackets
+        # Create video display frame with info overlay
         video_container = QWidget()
         video_container.setStyleSheet("""
             QWidget {
@@ -202,6 +207,7 @@ class VideoDisplayWidget(QMainWindow):
         """)
         video_layout = QVBoxLayout(video_container)
         video_layout.setContentsMargins(10, 10, 10, 10)
+        video_layout.setSpacing(10)
 
         # Create label to display video frames
         self.video_label = QLabel()
@@ -210,6 +216,10 @@ class VideoDisplayWidget(QMainWindow):
         self.video_label.setMinimumSize(800, 480)
         video_layout.addWidget(self.video_label)
 
+        # Add info overlay at the bottom
+        info_overlay = self.create_camera_info_overlay()
+        video_layout.addWidget(info_overlay)
+
         content_layout.addWidget(video_container, stretch=1)
 
         # Bottom control panel
@@ -217,6 +227,61 @@ class VideoDisplayWidget(QMainWindow):
         content_layout.addWidget(bottom_panel)
 
         return content_widget
+
+    def create_camera_info_overlay(self):
+        """Create an info overlay showing camera feed details."""
+        overlay = QWidget()
+        overlay.setStyleSheet("""
+            QWidget {
+                background-color: rgba(0, 0, 0, 180);
+                border-radius: 6px;
+            }
+        """)
+        overlay.setMaximumHeight(40)
+
+        overlay_layout = QHBoxLayout(overlay)
+        overlay_layout.setContentsMargins(15, 8, 15, 8)
+        overlay_layout.setSpacing(20)
+
+        # Connection status indicator
+        self.camera_status_indicator = QLabel("●")
+        self.camera_status_indicator.setStyleSheet("color: #00cc00; font-size: 16px;")
+        overlay_layout.addWidget(self.camera_status_indicator)
+
+        self.camera_status_text = QLabel("Connected")
+        self.camera_status_text.setStyleSheet("color: #fff; font-size: 12px; font-weight: bold;")
+        overlay_layout.addWidget(self.camera_status_text)
+
+        overlay_layout.addStretch()
+
+        # FPS counter
+        fps_label = QLabel("FPS:")
+        fps_label.setStyleSheet("color: #999; font-size: 11px;")
+        overlay_layout.addWidget(fps_label)
+
+        self.camera_fps_value = QLabel("30")
+        self.camera_fps_value.setStyleSheet("color: #fff; font-size: 12px; font-weight: bold;")
+        overlay_layout.addWidget(self.camera_fps_value)
+
+        # Resolution info
+        res_label = QLabel("Resolution:")
+        res_label.setStyleSheet("color: #999; font-size: 11px; margin-left: 15px;")
+        overlay_layout.addWidget(res_label)
+
+        self.camera_resolution_value = QLabel("...")
+        self.camera_resolution_value.setStyleSheet("color: #fff; font-size: 12px; font-weight: bold;")
+        overlay_layout.addWidget(self.camera_resolution_value)
+
+        # Frame counter for debugging
+        frame_label = QLabel("Frame:")
+        frame_label.setStyleSheet("color: #999; font-size: 11px; margin-left: 15px;")
+        overlay_layout.addWidget(frame_label)
+
+        self.camera_frame_counter = QLabel("0")
+        self.camera_frame_counter.setStyleSheet("color: #fff; font-size: 12px; font-weight: bold;")
+        overlay_layout.addWidget(self.camera_frame_counter)
+
+        return overlay
 
     def create_dataset_collection_page(self):
         """Create the dataset collection page."""
@@ -1610,6 +1675,18 @@ class VideoDisplayWidget(QMainWindow):
                 # Store the current frame for dataset capture
                 self.current_frame = frame.copy()
 
+                # Increment frame counter
+                self.frame_count += 1
+
+                # Update camera info overlay
+                if hasattr(self, 'camera_frame_counter'):
+                    self.camera_frame_counter.setText(str(self.frame_count))
+
+                # Update resolution info (only once or when changed)
+                if hasattr(self, 'camera_resolution_value') and self.frame_count == 1:
+                    height, width = frame.shape[:2]
+                    self.camera_resolution_value.setText(f"{width}×{height}")
+
                 # Convert the frame from BGR (OpenCV) to RGB (Qt) using numpy
                 frame_rgb = frame[..., ::-1].copy()
 
@@ -1645,6 +1722,12 @@ class VideoDisplayWidget(QMainWindow):
                     if self.stacked_widget.currentIndex() == 1:  # Dataset page
                         self.ok_button.setEnabled(True)
                         self.not_ok_button.setEnabled(True)
+            else:
+                # Update status indicator to show disconnection
+                if hasattr(self, 'camera_status_indicator'):
+                    self.camera_status_indicator.setStyleSheet("color: #ff0000; font-size: 16px;")
+                if hasattr(self, 'camera_status_text'):
+                    self.camera_status_text.setText("Disconnected")
 
     def get_current_frame(self):
         """Get the current camera frame."""

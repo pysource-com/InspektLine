@@ -95,6 +95,7 @@
 5. Images appear in gallery and are saved to storage/
 
 ### For Developers
+
 ```python
 # Access current frame
 frame = main_window.get_current_frame()
@@ -104,7 +105,8 @@ main_window.capture_sample("OK")  # or "NOT_OK"
 
 # Check storage
 from pathlib import Path
-ok_path = Path("storage/dataset/ok")
+
+ok_path = Path("../storage/dataset/ok")
 ok_files = list(ok_path.glob("*.jpg"))
 print(f"Found {len(ok_files)} OK samples")
 ```

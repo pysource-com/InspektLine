@@ -102,7 +102,7 @@ If PyTorch doesn't detect your GPU:
 - Verify your virtual environment is activated
 
 ## License
-See [LICENSE](LICENSE) file for details.
+See [LICENSE](../LICENSE) file for details.
 
 ## Contributing
 Contributions are welcome! Please feel free to submit a Pull Request.
