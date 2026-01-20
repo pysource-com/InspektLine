@@ -20,7 +20,8 @@ class SettingsPage(QWidget):
         self.resolution_combo = None
         self.fps_combo = None
         self.autofocus_checkbox = None
-        self.stabilization_checkbox = None
+        self.manual_focus_slider = None
+        self.focus_value_label = None
         self.confidence_input = None
         self.defect_size_input = None
 
@@ -208,41 +209,54 @@ class SettingsPage(QWidget):
 
         layout.addLayout(res_fps_layout)
 
-        # Sliders
-        sliders_layout = QHBoxLayout()
-        sliders_layout.setSpacing(20)
-
-        exposure_group = self.create_slider_group("Exposure", 50)
-        sliders_layout.addLayout(exposure_group, stretch=1)
-
-        brightness_group = self.create_slider_group("Brightness", 50)
-        sliders_layout.addLayout(brightness_group, stretch=1)
-
-        layout.addLayout(sliders_layout)
-
-        sliders_layout2 = QHBoxLayout()
-        sliders_layout2.setSpacing(20)
-
-        contrast_group = self.create_slider_group("Contrast", 75)
-        sliders_layout2.addLayout(contrast_group, stretch=1)
-
-        saturation_group = self.create_slider_group("Saturation", 50)
-        sliders_layout2.addLayout(saturation_group, stretch=1)
-
-        layout.addLayout(sliders_layout2)
-
-        # Checkboxes
+        # Autofocus checkbox
         self.autofocus_checkbox = QCheckBox("Enable auto-focus")
-        self.autofocus_checkbox.setChecked(True)
+        self.autofocus_checkbox.setChecked(False)  # Disabled by default
         self.autofocus_checkbox.setStyleSheet(StyleSheets.get_checkbox_style())
+        if self.parent_window:
+            self.autofocus_checkbox.stateChanged.connect(self.parent_window.on_autofocus_changed)
+            self.autofocus_checkbox.stateChanged.connect(self._on_autofocus_toggled)
         layout.addWidget(self.autofocus_checkbox)
 
-        self.stabilization_checkbox = QCheckBox("Enable image stabilization")
-        self.stabilization_checkbox.setChecked(True)
-        self.stabilization_checkbox.setStyleSheet(StyleSheets.get_checkbox_style())
-        layout.addWidget(self.stabilization_checkbox)
+        # Manual Focus slider
+        manual_focus_label = QLabel("Manual Focus")
+        manual_focus_label.setStyleSheet(f"color: {DarkTheme.TEXT_SECONDARY}; font-size: 13px; margin-top: 15px; margin-bottom: 8px;")
+        layout.addWidget(manual_focus_label)
+
+        focus_control_layout = QHBoxLayout()
+        focus_control_layout.setSpacing(15)
+
+        self.manual_focus_slider = QSlider(Qt.Orientation.Horizontal)
+        self.manual_focus_slider.setMinimum(0)
+        self.manual_focus_slider.setMaximum(255)
+        self.manual_focus_slider.setValue(128)
+        self.manual_focus_slider.setStyleSheet(StyleSheets.get_slider_style())
+        self.manual_focus_slider.setEnabled(True)  # Enabled by default since autofocus is off
+        if self.parent_window:
+            self.manual_focus_slider.valueChanged.connect(self.parent_window.on_manual_focus_changed)
+        focus_control_layout.addWidget(self.manual_focus_slider, stretch=1)
+
+        self.focus_value_label = QLabel("128")
+        self.focus_value_label.setStyleSheet(f"color: {DarkTheme.TEXT_SECONDARY}; font-size: 13px; min-width: 35px;")
+        self.manual_focus_slider.valueChanged.connect(lambda v: self.focus_value_label.setText(str(v)))
+        focus_control_layout.addWidget(self.focus_value_label)
+
+        layout.addLayout(focus_control_layout)
+
+        # Info text
+        info_label = QLabel("Note: Manual focus is only available when auto-focus is disabled")
+        info_label.setStyleSheet(f"color: {DarkTheme.TEXT_SECONDARY}; font-size: 11px; font-style: italic; margin-top: 5px;")
+        info_label.setWordWrap(True)
+        layout.addWidget(info_label)
+
 
         return section
+
+    def _on_autofocus_toggled(self, state):
+        """Handle autofocus checkbox toggle to enable/disable manual focus slider."""
+        is_autofocus_enabled = state == Qt.CheckState.Checked.value
+        # Enable manual focus slider only when autofocus is disabled
+        self.manual_focus_slider.setEnabled(not is_autofocus_enabled)
 
     def create_detection_params_section(self):
         """Create the Detection Parameters section."""
@@ -283,21 +297,4 @@ class SettingsPage(QWidget):
         layout.addWidget(self.defect_size_input)
 
         return section
-
-    def create_slider_group(self, label_text, value):
-        """Create a slider group."""
-        group = QVBoxLayout()
-
-        label = QLabel(label_text)
-        label.setStyleSheet(f"color: {DarkTheme.TEXT_SECONDARY}; font-size: 13px; margin-bottom: 8px;")
-        group.addWidget(label)
-
-        slider = QSlider(Qt.Orientation.Horizontal)
-        slider.setMinimum(0)
-        slider.setMaximum(100)
-        slider.setValue(value)
-        slider.setStyleSheet(StyleSheets.get_slider_style())
-        group.addWidget(slider)
-
-        return group
 

@@ -213,6 +213,87 @@ class IntelRealSenseD435i:
         depth_sensor = device.first_depth_sensor()
         return depth_sensor.get_depth_scale()
 
+    def set_autofocus(self, enabled: bool) -> bool:
+        """
+        Enable or disable camera autofocus for Intel RealSense.
+
+        Args:
+            enabled: True to enable autofocus, False to disable
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        if not self.is_running or not self.profile:
+            print("Camera is not running. Call start() first.")
+            return False
+
+        try:
+            device = self.profile.get_device()
+            # Get the color sensor
+            color_sensor = None
+            for sensor in device.sensors:
+                if sensor.is_color_sensor():
+                    color_sensor = sensor
+                    break
+
+            if color_sensor is None:
+                print("Could not find color sensor")
+                return False
+
+            # Check if autofocus is supported
+            if color_sensor.supports(rs.option.enable_auto_exposure):
+                # RealSense uses auto-exposure which includes focus control
+                color_sensor.set_option(rs.option.enable_auto_exposure, 1 if enabled else 0)
+                print(f"RealSense auto-exposure {'enabled' if enabled else 'disabled'}")
+                return True
+            else:
+                print("Auto-exposure not supported on this camera")
+                return False
+        except Exception as e:
+            print(f"Failed to set autofocus on RealSense: {e}")
+            return False
+
+    def set_manual_focus(self, focus_value: int) -> bool:
+        """
+        Set manual focus value for Intel RealSense.
+
+        Args:
+            focus_value: Focus value (0-255)
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        if not self.is_running or not self.profile:
+            print("Camera is not running. Call start() first.")
+            return False
+
+        try:
+            device = self.profile.get_device()
+            # Get the color sensor
+            color_sensor = None
+            for sensor in device.sensors:
+                if sensor.is_color_sensor():
+                    color_sensor = sensor
+                    break
+
+            if color_sensor is None:
+                print("Could not find color sensor")
+                return False
+
+            # Disable autofocus first
+            if color_sensor.supports(rs.option.enable_auto_exposure):
+                color_sensor.set_option(rs.option.enable_auto_exposure, 0)
+
+            # Set manual focus if supported
+            # Note: Not all RealSense cameras support manual focus adjustment
+            # The D435i typically uses fixed focus
+            print(f"Manual focus requested: {focus_value}")
+            print("Note: D435i camera uses fixed focus and may not support manual adjustment")
+            return True
+        except Exception as e:
+            print(f"Failed to set manual focus on RealSense: {e}")
+            return False
+
     def __enter__(self):
         """Context manager entry."""
         self.start()

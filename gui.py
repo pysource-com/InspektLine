@@ -55,18 +55,13 @@ class VideoDisplayWidget(QMainWindow):
         self.cap = None
         self.timer = None
         self.is_inspecting = False
-        self.exposure_value = 50
-        self.contrast_value = 75
         self.current_page = "camera"  # Track current page
         self.current_frame = None  # Store the current frame for dataset capture
 
         # Settings values
-        self.brightness_value = 50
-        self.saturation_value = 50
         self.confidence_threshold = 85
         self.min_defect_size = 10
-        self.auto_focus_enabled = True
-        self.stabilization_enabled = True
+        self.auto_focus_enabled = False  # Disabled by default, manual focus enabled
         self.resolution = "1920 x 1080 (Full HD)"
         self.frame_rate = "30 FPS"
 
@@ -1054,40 +1049,43 @@ class VideoDisplayWidget(QMainWindow):
 
         section_layout.addLayout(res_fps_layout)
 
-        # Exposure and Brightness sliders row
-        exp_bright_layout = QHBoxLayout()
-        exp_bright_layout.setSpacing(20)
-
-        exposure_group = self.create_slider_group("Exposure", self.exposure_value)
-        exp_bright_layout.addLayout(exposure_group, stretch=1)
-
-        brightness_group = self.create_slider_group("Brightness", self.brightness_value)
-        exp_bright_layout.addLayout(brightness_group, stretch=1)
-
-        section_layout.addLayout(exp_bright_layout)
-
-        # Contrast and Saturation sliders row
-        con_sat_layout = QHBoxLayout()
-        con_sat_layout.setSpacing(20)
-
-        contrast_group = self.create_slider_group("Contrast", self.contrast_value)
-        con_sat_layout.addLayout(contrast_group, stretch=1)
-
-        saturation_group = self.create_slider_group("Saturation", self.saturation_value)
-        con_sat_layout.addLayout(saturation_group, stretch=1)
-
-        section_layout.addLayout(con_sat_layout)
-
-        # Checkboxes
+        # Autofocus checkbox
         self.autofocus_checkbox = QCheckBox("Enable auto-focus")
         self.autofocus_checkbox.setChecked(self.auto_focus_enabled)
         self.autofocus_checkbox.setStyleSheet(self.get_checkbox_style())
+        self.autofocus_checkbox.stateChanged.connect(self.on_autofocus_changed)
+        self.autofocus_checkbox.stateChanged.connect(self._on_autofocus_toggled)
         section_layout.addWidget(self.autofocus_checkbox)
 
-        self.stabilization_checkbox = QCheckBox("Enable image stabilization")
-        self.stabilization_checkbox.setChecked(self.stabilization_enabled)
-        self.stabilization_checkbox.setStyleSheet(self.get_checkbox_style())
-        section_layout.addWidget(self.stabilization_checkbox)
+        # Manual Focus slider
+        manual_focus_label = QLabel("Manual Focus")
+        manual_focus_label.setStyleSheet("color: #999; font-size: 13px; margin-top: 15px; margin-bottom: 8px;")
+        section_layout.addWidget(manual_focus_label)
+
+        focus_control_layout = QHBoxLayout()
+        focus_control_layout.setSpacing(15)
+
+        self.manual_focus_slider = QSlider(Qt.Orientation.Horizontal)
+        self.manual_focus_slider.setMinimum(0)
+        self.manual_focus_slider.setMaximum(255)
+        self.manual_focus_slider.setValue(128)
+        self.manual_focus_slider.setStyleSheet(self.get_slider_style())
+        self.manual_focus_slider.setEnabled(not self.auto_focus_enabled)  # Enabled when autofocus is off
+        self.manual_focus_slider.valueChanged.connect(self.on_manual_focus_changed)
+        focus_control_layout.addWidget(self.manual_focus_slider, stretch=1)
+
+        self.focus_value_label = QLabel("128")
+        self.focus_value_label.setStyleSheet("color: #999; font-size: 13px; min-width: 35px;")
+        self.manual_focus_slider.valueChanged.connect(lambda v: self.focus_value_label.setText(str(v)))
+        focus_control_layout.addWidget(self.focus_value_label)
+
+        section_layout.addLayout(focus_control_layout)
+
+        # Info text
+        info_label = QLabel("Note: Manual focus is only available when auto-focus is disabled")
+        info_label.setStyleSheet("color: #999; font-size: 11px; font-style: italic; margin-top: 5px;")
+        info_label.setWordWrap(True)
+        section_layout.addWidget(info_label)
 
         return section
 
@@ -1329,54 +1327,6 @@ class VideoDisplayWidget(QMainWindow):
         panel_layout.setContentsMargins(20, 15, 20, 15)
         panel_layout.setSpacing(15)
 
-        # Sliders row
-        sliders_layout = QHBoxLayout()
-        sliders_layout.setSpacing(30)
-
-        # Exposure slider
-        exposure_group = QVBoxLayout()
-        exposure_label_layout = QHBoxLayout()
-        exposure_label = QLabel("Exposure")
-        exposure_label.setStyleSheet("color: #999; font-size: 14px;")
-        exposure_label_layout.addWidget(exposure_label)
-        exposure_auto = QLabel("Auto")
-        exposure_auto.setStyleSheet("color: #999; font-size: 14px;")
-        exposure_label_layout.addWidget(exposure_auto)
-        exposure_label_layout.addStretch()
-        exposure_group.addLayout(exposure_label_layout)
-
-        self.exposure_slider = QSlider(Qt.Orientation.Horizontal)
-        self.exposure_slider.setMinimum(0)
-        self.exposure_slider.setMaximum(100)
-        self.exposure_slider.setValue(self.exposure_value)
-        self.exposure_slider.setStyleSheet(self.get_slider_style())
-        exposure_group.addWidget(self.exposure_slider)
-        sliders_layout.addLayout(exposure_group, stretch=1)
-
-        # Contrast slider
-        contrast_group = QVBoxLayout()
-        contrast_label_layout = QHBoxLayout()
-        contrast_label = QLabel("Contrast")
-        contrast_label.setStyleSheet("color: #999; font-size: 14px;")
-        contrast_label_layout.addWidget(contrast_label)
-        contrast_label_layout.addStretch()
-        contrast_value_label = QLabel(f"{self.contrast_value}%")
-        contrast_value_label.setStyleSheet("color: #999; font-size: 14px;")
-        contrast_label_layout.addWidget(contrast_value_label)
-        contrast_group.addLayout(contrast_label_layout)
-
-        self.contrast_slider = QSlider(Qt.Orientation.Horizontal)
-        self.contrast_slider.setMinimum(0)
-        self.contrast_slider.setMaximum(100)
-        self.contrast_slider.setValue(self.contrast_value)
-        self.contrast_slider.setStyleSheet(self.get_slider_style())
-        self.contrast_slider.valueChanged.connect(
-            lambda v: contrast_value_label.setText(f"{v}%")
-        )
-        contrast_group.addWidget(self.contrast_slider)
-        sliders_layout.addLayout(contrast_group, stretch=1)
-
-        panel_layout.addLayout(sliders_layout)
 
         # Buttons row
         buttons_layout = QHBoxLayout()
@@ -1597,6 +1547,32 @@ class VideoDisplayWidget(QMainWindow):
             self.camera_index = new_camera_index
             # Restart the camera with new device
             self.refresh_camera()
+
+    def on_autofocus_changed(self, state):
+        """Handle autofocus checkbox state change."""
+        enabled = state == Qt.CheckState.Checked.value
+        if self.cap is not None:
+            success = self.camera.set_autofocus(self.cap, enabled)
+            if not success:
+                print(f"Warning: Could not {'enable' if enabled else 'disable'} autofocus")
+        else:
+            print("Camera is not initialized")
+
+    def _on_autofocus_toggled(self, state):
+        """Handle autofocus checkbox toggle to enable/disable manual focus slider."""
+        is_autofocus_enabled = state == Qt.CheckState.Checked.value
+        # Enable manual focus slider only when autofocus is disabled
+        if hasattr(self, 'manual_focus_slider'):
+            self.manual_focus_slider.setEnabled(not is_autofocus_enabled)
+
+    def on_manual_focus_changed(self, value):
+        """Handle manual focus slider value change."""
+        if self.cap is not None:
+            success = self.camera.set_manual_focus(self.cap, value)
+            if not success:
+                print(f"Warning: Could not set manual focus to {value}")
+        else:
+            print("Camera is not initialized")
 
     def start_video(self):
         """Start capturing and displaying video."""

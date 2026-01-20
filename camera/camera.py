@@ -76,6 +76,80 @@ class Camera:
         except Exception as e:
             print(f"Error releasing camera: {e}")
 
+    def set_autofocus(self, cap, enabled: bool) -> bool:
+        """
+        Enable or disable camera autofocus.
+
+        Args:
+            cap: Camera capture object
+            enabled: True to enable autofocus, False to disable
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            if isinstance(cap, cv2.VideoCapture):
+                if not cap.isOpened():
+                    print("Camera is not opened")
+                    return False
+                # cv2.CAP_PROP_AUTOFOCUS: 1 = enable, 0 = disable
+                success = cap.set(cv2.CAP_PROP_AUTOFOCUS, 1 if enabled else 0)
+                if success:
+                    print(f"Autofocus {'enabled' if enabled else 'disabled'}")
+                else:
+                    print(f"Warning: Could not set autofocus (camera may not support this feature)")
+                return success
+            elif isinstance(cap, IntelRealSenseD435i):
+                # RealSense cameras handle autofocus through their own API
+                success = cap.set_autofocus(enabled)
+                if success:
+                    print(f"RealSense autofocus {'enabled' if enabled else 'disabled'}")
+                return success
+            else:
+                print(f"Unknown capture object type: {type(cap)}")
+                return False
+        except Exception as e:
+            print(f"Failed to set autofocus: {e}")
+            return False
+
+    def set_manual_focus(self, cap, focus_value: int) -> bool:
+        """
+        Set manual focus value.
+
+        Args:
+            cap: Camera capture object
+            focus_value: Focus value (0-255, where 0 is near and 255 is far)
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            if isinstance(cap, cv2.VideoCapture):
+                if not cap.isOpened():
+                    print("Camera is not opened")
+                    return False
+                # First disable autofocus for manual control
+                cap.set(cv2.CAP_PROP_AUTOFOCUS, 0)
+                # Set manual focus value
+                success = cap.set(cv2.CAP_PROP_FOCUS, focus_value)
+                if success:
+                    print(f"Manual focus set to: {focus_value}")
+                else:
+                    print(f"Warning: Could not set manual focus (camera may not support this feature)")
+                return success
+            elif isinstance(cap, IntelRealSenseD435i):
+                # RealSense cameras handle focus through their own API
+                success = cap.set_manual_focus(focus_value)
+                if success:
+                    print(f"RealSense manual focus set to: {focus_value}")
+                return success
+            else:
+                print(f"Unknown capture object type: {type(cap)}")
+                return False
+        except Exception as e:
+            print(f"Failed to set manual focus: {e}")
+            return False
+
 
 if __name__ == "__main__":
     camera = Camera()
