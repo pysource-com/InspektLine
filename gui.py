@@ -6,6 +6,10 @@ from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QImage, QPixmap
 from camera.camera import Camera
 from gui.pages.settings_page import SettingsPage
+from gui.pages.home_page import HomePage
+from gui.pages.annotator_page import AnnotatorPage
+from gui.pages.training_page import TrainingPage
+from database.project_db import ProjectDatabase
 
 
 class SidebarButton(QPushButton):
@@ -56,8 +60,19 @@ class VideoDisplayWidget(QMainWindow):
         self.cap = None
         self.timer = None
         self.is_inspecting = False
-        self.current_page = "camera"  # Track current page
+        self.current_page = "home"  # Track current page
         self.current_frame = None  # Store the current frame for dataset capture
+
+        # Database
+        self.db = ProjectDatabase()
+
+        # Page indices for stacked widget
+        self.PAGE_HOME = 0
+        self.PAGE_CAMERA = 1
+        self.PAGE_DATASET = 2
+        self.PAGE_ANNOTATE = 3
+        self.PAGE_TRAIN = 4
+        self.PAGE_SETTINGS = 5
 
         # Camera info tracking
         self.frame_count = 0
@@ -87,8 +102,8 @@ class VideoDisplayWidget(QMainWindow):
 
     def init_ui(self):
         """Initialize the user interface."""
-        self.setWindowTitle("InspektLine")
-        self.setGeometry(100, 100, 1280, 800)
+        self.setWindowTitle("InspektLine - Visual Inspection System")
+        self.setGeometry(100, 100, 1400, 900)
 
         # Set dark theme
         self.setStyleSheet("""
@@ -115,17 +130,39 @@ class VideoDisplayWidget(QMainWindow):
         # Create stacked widget for different pages
         self.stacked_widget = QStackedWidget()
 
-        # Create camera feed page
+        # PAGE 0: Home page (default)
+        self.home_page = HomePage(parent=self)
+        self.home_page.navigate_to_capture.connect(lambda: self.switch_to_page(self.PAGE_DATASET))
+        self.home_page.navigate_to_annotate.connect(lambda: self.switch_to_page(self.PAGE_ANNOTATE))
+        self.home_page.navigate_to_train.connect(lambda: self.switch_to_page(self.PAGE_TRAIN))
+        self.home_page.navigate_to_settings.connect(lambda: self.switch_to_page(self.PAGE_SETTINGS))
+        self.home_page.navigate_to_dataset.connect(lambda: self.switch_to_page(self.PAGE_DATASET))
+        self.stacked_widget.addWidget(self.home_page)
+
+        # PAGE 1: Camera feed page
         camera_page = self.create_camera_page()
         self.stacked_widget.addWidget(camera_page)
 
-        # Create dataset collection page
+        # PAGE 2: Dataset collection page
         dataset_page = self.create_dataset_collection_page()
         self.stacked_widget.addWidget(dataset_page)
 
-        # Create settings page
+        # PAGE 3: Annotator page
+        self.annotator_page = AnnotatorPage(parent=self)
+        self.annotator_page.navigate_back.connect(lambda: self.switch_to_page(self.PAGE_HOME))
+        self.stacked_widget.addWidget(self.annotator_page)
+
+        # PAGE 4: Training page
+        self.training_page = TrainingPage(parent=self)
+        self.training_page.navigate_back.connect(lambda: self.switch_to_page(self.PAGE_HOME))
+        self.stacked_widget.addWidget(self.training_page)
+
+        # PAGE 5: Settings page
         settings_page = self.create_settings_page()
         self.stacked_widget.addWidget(settings_page)
+
+        # Set HomePage as default
+        self.stacked_widget.setCurrentIndex(self.PAGE_HOME)
 
         main_layout.addWidget(self.stacked_widget, stretch=1)
 
@@ -780,6 +817,9 @@ class VideoDisplayWidget(QMainWindow):
         cv2.imwrite(str(save_path), self.current_frame)
         self.total_samples += 1
 
+        # Add to database
+        self.db.add_image(str(save_path))
+
         print(f"Saved sample: {save_path}")
 
         # Update UI
@@ -1252,66 +1292,77 @@ class VideoDisplayWidget(QMainWindow):
         # Store buttons for group management
         self.sidebar_buttons = []
 
-        # Camera button (active by default)
+        # Home button (active by default)
+        home_btn = SidebarButton("🏠")
+        home_btn.setChecked(True)
+        home_btn.setToolTip("Home")
+        home_btn.clicked.connect(lambda: self.switch_to_page(self.PAGE_HOME, home_btn))
+        sidebar_layout.addWidget(home_btn)
+        self.sidebar_buttons.append(home_btn)
+
+        # Camera button - Live Feed
         camera_btn = SidebarButton("📷")
-        camera_btn.setChecked(True)
-        camera_btn.clicked.connect(lambda: self.switch_page(0, camera_btn))
+        camera_btn.setToolTip("Live Camera")
+        camera_btn.clicked.connect(lambda: self.switch_to_page(self.PAGE_CAMERA, camera_btn))
         sidebar_layout.addWidget(camera_btn)
         self.sidebar_buttons.append(camera_btn)
 
         # Capture button - Dataset Collection
         capture_btn = SidebarButton("📸")
-        capture_btn.clicked.connect(lambda: self.switch_page(1, capture_btn))
+        capture_btn.setToolTip("Collect Images")
+        capture_btn.clicked.connect(lambda: self.switch_to_page(self.PAGE_DATASET, capture_btn))
         sidebar_layout.addWidget(capture_btn)
         self.sidebar_buttons.append(capture_btn)
 
-        # Database button
-        database_btn = SidebarButton("💾")
-        database_btn.clicked.connect(lambda: self.switch_page(0, database_btn))
-        sidebar_layout.addWidget(database_btn)
-        self.sidebar_buttons.append(database_btn)
+        # Annotate button
+        annotate_btn = SidebarButton("🏷️")
+        annotate_btn.setToolTip("Annotate Dataset")
+        annotate_btn.clicked.connect(lambda: self.switch_to_page(self.PAGE_ANNOTATE, annotate_btn))
+        sidebar_layout.addWidget(annotate_btn)
+        self.sidebar_buttons.append(annotate_btn)
 
-        # Chart button
-        chart_btn = SidebarButton("📊")
-        chart_btn.clicked.connect(lambda: self.switch_page(0, chart_btn))
-        sidebar_layout.addWidget(chart_btn)
-        self.sidebar_buttons.append(chart_btn)
-
-        # Document button
-        document_btn = SidebarButton("📄")
-        document_btn.clicked.connect(lambda: self.switch_page(0, document_btn))
-        sidebar_layout.addWidget(document_btn)
-        self.sidebar_buttons.append(document_btn)
+        # Train button
+        train_btn = SidebarButton("🧠")
+        train_btn.setToolTip("Train Model")
+        train_btn.clicked.connect(lambda: self.switch_to_page(self.PAGE_TRAIN, train_btn))
+        sidebar_layout.addWidget(train_btn)
+        self.sidebar_buttons.append(train_btn)
 
         sidebar_layout.addStretch()
 
         # Settings button at bottom
         settings_btn = SidebarButton("⚙️")
-        settings_btn.clicked.connect(lambda: self.switch_page(2, settings_btn))
+        settings_btn.setToolTip("Settings")
+        settings_btn.clicked.connect(lambda: self.switch_to_page(self.PAGE_SETTINGS, settings_btn))
         sidebar_layout.addWidget(settings_btn)
         self.sidebar_buttons.append(settings_btn)
 
         # Power button at very bottom
         power_btn = SidebarButton("⏻")
+        power_btn.setToolTip("Exit")
         power_btn.clicked.connect(self.close)
         sidebar_layout.addWidget(power_btn)
 
         return sidebar
 
-    def switch_page(self, page_index, clicked_button):
+    def switch_to_page(self, page_index, clicked_button=None):
         """Switch to a different page in the stacked widget."""
         self.stacked_widget.setCurrentIndex(page_index)
 
         # Update button states
-        for btn in self.sidebar_buttons:
-            btn.setChecked(btn == clicked_button)
+        if clicked_button:
+            for btn in self.sidebar_buttons:
+                btn.setChecked(btn == clicked_button)
 
         # Enable/disable dataset capture buttons based on page
-        if page_index == 1:  # Dataset collection page
+        if page_index == self.PAGE_DATASET:  # Dataset collection page
             self.is_capturing = True
-            self.capturing_badge.setVisible(True)
-            self.ok_button.setEnabled(True)
-            self.not_ok_button.setEnabled(True)
+            if hasattr(self, 'capturing_badge'):
+                self.capturing_badge.setVisible(True)
+            if hasattr(self, 'ok_button'):
+                self.ok_button.setEnabled(True)
+            if hasattr(self, 'not_ok_button'):
+                self.not_ok_button.setEnabled(True)
 
             # Load existing images on first visit to dataset page
             if not self.gallery_loaded:
@@ -1325,6 +1376,10 @@ class VideoDisplayWidget(QMainWindow):
                 self.ok_button.setEnabled(False)
             if hasattr(self, 'not_ok_button'):
                 self.not_ok_button.setEnabled(False)
+
+        # Refresh home page when navigating to it
+        if page_index == self.PAGE_HOME and hasattr(self, 'home_page'):
+            self.home_page.refresh_state()
 
     def create_bottom_panel(self):
         """Create the bottom control panel with sliders and buttons."""
