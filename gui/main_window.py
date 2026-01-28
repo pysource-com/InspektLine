@@ -119,6 +119,8 @@ class MainWindow(QMainWindow):
         if self.settings_dialog is None or not self.settings_dialog.isVisible():
             self.settings_page = SettingsPage(parent=self)
             self.settings_dialog = PageDialog("InspektLine - Settings", self.settings_page, self)
+            self.settings_dialog.setMinimumSize(600, 700)
+            self.settings_dialog.resize(650, 750)
             self.settings_dialog.show()
         else:
             self.settings_dialog.raise_()
