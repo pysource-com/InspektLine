@@ -161,23 +161,13 @@ class SettingsPage(QWidget):
 
     def _populate_camera_devices(self):
         """Populate camera device dropdown with available cameras."""
-        # Try to detect cameras, fallback to generic options
-        try:
-            import cv2
-            cameras = []
-            for i in range(5):  # Check first 5 indices
-                cap = cv2.VideoCapture(i)
-                if cap.isOpened():
-                    # Try to get camera name (platform specific)
-                    cameras.append(f"Camera {i}")
-                    cap.release()
-
-            if cameras:
-                self.camera_device_combo.addItems(cameras)
-            else:
-                self.camera_device_combo.addItems(["No camera detected"])
-        except Exception:
-            self.camera_device_combo.addItems(["Logitech Webcam C920"])
+        # Use a simple static list - camera validation happens when actually used
+        # This avoids OpenCV warning spam during settings initialization
+        self.camera_device_combo.addItems([
+            "Camera 0",
+            "Camera 1",
+            "Camera 2"
+        ])
 
     def _create_model_section(self):
         """Create active detection model section."""
