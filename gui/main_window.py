@@ -130,15 +130,21 @@ class MainWindow(QMainWindow):
         """Open dataset collection in a separate window."""
         if self.dataset_dialog is None or not self.dataset_dialog.isVisible():
             self.dataset_page = DatasetPage(parent=self)
-            if not self.gallery_loaded and hasattr(self.dataset_page, 'load_existing_samples'):
-                self.dataset_page.load_existing_samples()
+            if not self.gallery_loaded and hasattr(self.dataset_page, '_load_existing_samples'):
+                self.dataset_page._load_existing_samples()
                 self.gallery_loaded = True
-            self.dataset_dialog = PageDialog("InspektLine - Dataset Collection", self.dataset_page, self)
+            self.dataset_page.navigate_back.connect(self._close_dataset_dialog)
+            self.dataset_dialog = PageDialog("InspektLine - Dataset & Training", self.dataset_page, self)
             self.is_capturing = True
             self.dataset_dialog.show()
         else:
             self.dataset_dialog.raise_()
             self.dataset_dialog.activateWindow()
+
+    def _close_dataset_dialog(self):
+        """Close the dataset dialog."""
+        if self.dataset_dialog:
+            self.dataset_dialog.close()
 
     def open_camera_window(self):
         """Open camera feed in a separate window."""
@@ -217,8 +223,13 @@ class MainWindow(QMainWindow):
 
                 # Update dataset page video label if dialog is open
                 if self.dataset_dialog and self.dataset_dialog.isVisible():
-                    if hasattr(self.dataset_page, 'video_label'):
-                        self.dataset_page.video_label.display_frame(frame)
+                    if hasattr(self.dataset_page, 'dataset_video_label') and self.dataset_page.dataset_video_label:
+                        self.dataset_page.dataset_video_label.display_frame(frame)
+                        # Enable capture buttons when we have frames
+                        if hasattr(self.dataset_page, 'ok_button') and self.dataset_page.ok_button:
+                            self.dataset_page.ok_button.setEnabled(True)
+                        if hasattr(self.dataset_page, 'not_ok_button') and self.dataset_page.not_ok_button:
+                            self.dataset_page.not_ok_button.setEnabled(True)
 
                 # Update resolution info on camera page
                 if self.camera_dialog and self.camera_dialog.isVisible():
@@ -343,14 +354,14 @@ class MainWindow(QMainWindow):
 
         # Update dataset page if available - sync counters first
         if hasattr(self, 'dataset_page') and self.dataset_page:
-            if hasattr(self.dataset_page, 'update_statistics'):
+            if hasattr(self.dataset_page, '_update_collect_stats'):
                 self.dataset_page.total_samples = self.total_samples
                 self.dataset_page.ok_samples = self.ok_samples
                 self.dataset_page.not_ok_samples = self.not_ok_samples
-                self.dataset_page.update_statistics()
+                self.dataset_page._update_collect_stats()
 
-            if hasattr(self.dataset_page, 'add_to_gallery'):
-                self.dataset_page.add_to_gallery(save_path, label_type)
+            if hasattr(self.dataset_page, '_add_to_gallery'):
+                self.dataset_page._add_to_gallery(save_path, label_type)
 
     # ========================
     # Event Handlers
