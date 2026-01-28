@@ -3,6 +3,7 @@
 import sys
 from PySide6.QtWidgets import QMainWindow, QVBoxLayout, QDialog
 from PySide6.QtCore import QTimer, Qt
+from PySide6.QtGui import QIcon
 
 from camera.camera import Camera
 from database.project_db import ProjectDatabase
@@ -80,12 +81,21 @@ class MainWindow(QMainWindow):
         self.annotator_dialog = None
         self.training_dialog = None
 
+        # Page references (created when dialogs open)
+        self.camera_page = None
+        self.dataset_page = None
+        self.annotator_page = None
+        self.training_page = None
+        self.settings_page = None
+
         self.init_ui()
         self.start_video()
 
     def init_ui(self):
         """Initialize the user interface."""
+        print("=== NEW MAINWINDOW WITHOUT SIDEBAR ===")
         self.setWindowTitle("InspektLine - Visual Inspection System")
+        self.setWindowIcon(QIcon())  # Clear window icon
         self.setGeometry(100, 100, 1400, 900)
         self.setStyleSheet(DarkTheme.get_main_window_style())
 
@@ -99,16 +109,6 @@ class MainWindow(QMainWindow):
 
         self.setCentralWidget(self.home_page)
 
-        # Pre-create pages (they need parent reference for camera access)
-        self._create_pages()
-
-    def _create_pages(self):
-        """Pre-create page widgets for use in dialogs."""
-        self.camera_page = CameraPage(parent=self)
-        self.dataset_page = DatasetPage(parent=self)
-        self.annotator_page = AnnotatorPage(parent=self)
-        self.training_page = TrainingPage(parent=self)
-        self.settings_page = SettingsPage(parent=self)
 
     # ========================
     # Window Opening Methods

@@ -1760,10 +1760,9 @@ def main():
     """Main function to run the video display application."""
     app = QApplication(sys.argv)
 
-    # Use default camera (0) with USB standard camera or Intel RealSense
-    # For USB camera: camera_type="usb-standard"
-    # For Intel RealSense: camera_type="intel-realsense"
-    window = VideoDisplayWidget(camera_index=0, camera_type="usb-standard")
+    # Use the new MainWindow from gui.main_window (without sidebar)
+    from gui.main_window import MainWindow
+    window = MainWindow(camera_index=0, camera_type="usb-standard")
     window.show()
 
     sys.exit(app.exec())

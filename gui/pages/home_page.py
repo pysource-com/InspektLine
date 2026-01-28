@@ -190,9 +190,10 @@ class HomePage(QWidget):
         # Title and subtitle
         title_layout = QVBoxLayout()
         title_layout.setSpacing(2)
+        title_layout.setContentsMargins(0, 0, 0, 0)
 
         title = QLabel("Visual Inspection System")
-        title.setStyleSheet(f"color: {DarkTheme.TEXT_PRIMARY}; font-size: 18px; font-weight: bold; border: none;")
+        title.setStyleSheet(f"color: {DarkTheme.TEXT_PRIMARY}; font-size: 18px; font-weight: bold; border: none; background: transparent;")
         title_layout.addWidget(title)
 
         self.model_status = QLabel("No model active")
