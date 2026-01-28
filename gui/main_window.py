@@ -1,28 +1,34 @@
 """Main window for InspektLine GUI using modular architecture."""
 
 import sys
-from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-                                QFrame, QStackedWidget)
+from PySide6.QtWidgets import QMainWindow, QVBoxLayout, QDialog
 from PySide6.QtCore import QTimer, Qt
 
 from camera.camera import Camera
 from database.project_db import ProjectDatabase
-from gui.components import SidebarButton
 from gui.pages import (CameraPage, DatasetPage, SettingsPage, HomePage,
                        AnnotatorPage, TrainingPage)
 from gui.styles import DarkTheme
 
 
-class MainWindow(QMainWindow):
-    """Main application window with left sidebar and modular pages."""
+class PageDialog(QDialog):
+    """Base dialog for opening pages in separate windows."""
 
-    # Page indices
-    PAGE_HOME = 0
-    PAGE_CAMERA = 1
-    PAGE_DATASET = 2
-    PAGE_ANNOTATE = 3
-    PAGE_TRAIN = 4
-    PAGE_SETTINGS = 5
+    def __init__(self, title, page_widget, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.setMinimumSize(1200, 800)
+        self.setStyleSheet(DarkTheme.get_main_window_style())
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(page_widget)
+
+        self.page_widget = page_widget
+
+
+class MainWindow(QMainWindow):
+    """Main application window with home page as main content."""
 
     def __init__(self, camera_index=0, camera_type="usb-standard"):
         """
@@ -39,7 +45,6 @@ class MainWindow(QMainWindow):
         self.cap = None
         self.timer = None
         self.is_inspecting = False
-        self.current_page = "home"
         self.current_frame = None
 
         # Database
@@ -68,8 +73,12 @@ class MainWindow(QMainWindow):
         self.gallery_items = []
         self.gallery_loaded = False
 
-        # Store sidebar buttons for group management
-        self.sidebar_buttons = []
+        # Dialog references (to keep them alive)
+        self.settings_dialog = None
+        self.dataset_dialog = None
+        self.camera_dialog = None
+        self.annotator_dialog = None
+        self.training_dialog = None
 
         self.init_ui()
         self.start_video()
@@ -80,151 +89,84 @@ class MainWindow(QMainWindow):
         self.setGeometry(100, 100, 1400, 900)
         self.setStyleSheet(DarkTheme.get_main_window_style())
 
-        # Create central widget with horizontal layout
-        central_widget = QWidget()
-        self.setCentralWidget(central_widget)
-        main_layout = QHBoxLayout(central_widget)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(0)
-
-        # Create left sidebar
-        sidebar = self.create_sidebar()
-        main_layout.addWidget(sidebar)
-
-        # Create stacked widget for different pages
-        self.stacked_widget = QStackedWidget()
-
-        # Initialize pages
-        self.setup_pages()
-
-        # Set HomePage as default
-        self.stacked_widget.setCurrentIndex(self.PAGE_HOME)
-
-        main_layout.addWidget(self.stacked_widget, stretch=1)
-
-    def setup_pages(self):
-        """Set up all application pages."""
-        # PAGE 0: Home page
+        # Initialize home page as the main content
         self.home_page = HomePage(parent=self)
-        self.home_page.navigate_to_capture.connect(lambda: self.switch_to_page(self.PAGE_DATASET))
-        self.home_page.navigate_to_annotate.connect(lambda: self.switch_to_page(self.PAGE_ANNOTATE))
-        self.home_page.navigate_to_train.connect(lambda: self.switch_to_page(self.PAGE_TRAIN))
-        self.home_page.navigate_to_settings.connect(lambda: self.switch_to_page(self.PAGE_SETTINGS))
-        self.home_page.navigate_to_dataset.connect(lambda: self.switch_to_page(self.PAGE_DATASET))
-        self.stacked_widget.addWidget(self.home_page)
+        self.home_page.navigate_to_capture.connect(self.open_dataset_window)
+        self.home_page.navigate_to_annotate.connect(self.open_annotator_window)
+        self.home_page.navigate_to_train.connect(self.open_training_window)
+        self.home_page.navigate_to_settings.connect(self.open_settings_window)
+        self.home_page.navigate_to_dataset.connect(self.open_dataset_window)
 
-        # PAGE 1: Camera feed page
+        self.setCentralWidget(self.home_page)
+
+        # Pre-create pages (they need parent reference for camera access)
+        self._create_pages()
+
+    def _create_pages(self):
+        """Pre-create page widgets for use in dialogs."""
         self.camera_page = CameraPage(parent=self)
-        self.stacked_widget.addWidget(self.camera_page)
-
-        # PAGE 2: Dataset collection page
         self.dataset_page = DatasetPage(parent=self)
-        self.stacked_widget.addWidget(self.dataset_page)
-
-        # PAGE 3: Annotator page
         self.annotator_page = AnnotatorPage(parent=self)
-        self.annotator_page.navigate_back.connect(lambda: self.switch_to_page(self.PAGE_HOME))
-        self.stacked_widget.addWidget(self.annotator_page)
-
-        # PAGE 4: Training page
         self.training_page = TrainingPage(parent=self)
-        self.training_page.navigate_back.connect(lambda: self.switch_to_page(self.PAGE_HOME))
-        self.stacked_widget.addWidget(self.training_page)
-
-        # PAGE 5: Settings page
         self.settings_page = SettingsPage(parent=self)
-        self.stacked_widget.addWidget(self.settings_page)
 
-    def create_sidebar(self):
-        """Create the left sidebar with navigation buttons."""
-        sidebar = QFrame()
-        sidebar.setFixedWidth(100)
-        sidebar.setStyleSheet(f"""
-            QFrame {{
-                background-color: {DarkTheme.BG_SECONDARY};
-                border-right: 1px solid {DarkTheme.BORDER_PRIMARY};
-            }}
-        """)
+    # ========================
+    # Window Opening Methods
+    # ========================
 
-        sidebar_layout = QVBoxLayout(sidebar)
-        sidebar_layout.setContentsMargins(10, 20, 10, 20)
-        sidebar_layout.setSpacing(10)
+    def open_settings_window(self):
+        """Open settings in a separate window."""
+        if self.settings_dialog is None or not self.settings_dialog.isVisible():
+            self.settings_page = SettingsPage(parent=self)
+            self.settings_dialog = PageDialog("InspektLine - Settings", self.settings_page, self)
+            self.settings_dialog.show()
+        else:
+            self.settings_dialog.raise_()
+            self.settings_dialog.activateWindow()
 
-        # Home button (active by default)
-        home_btn = SidebarButton("🏠")
-        home_btn.setChecked(True)
-        home_btn.setToolTip("Home")
-        home_btn.clicked.connect(lambda: self.switch_to_page(self.PAGE_HOME, home_btn))
-        sidebar_layout.addWidget(home_btn)
-        self.sidebar_buttons.append(home_btn)
-
-        # Camera button - Live Feed
-        camera_btn = SidebarButton("📷")
-        camera_btn.setToolTip("Live Camera")
-        camera_btn.clicked.connect(lambda: self.switch_to_page(self.PAGE_CAMERA, camera_btn))
-        sidebar_layout.addWidget(camera_btn)
-        self.sidebar_buttons.append(camera_btn)
-
-        # Capture button - Dataset Collection
-        capture_btn = SidebarButton("📸")
-        capture_btn.setToolTip("Collect Images")
-        capture_btn.clicked.connect(lambda: self.switch_to_page(self.PAGE_DATASET, capture_btn))
-        sidebar_layout.addWidget(capture_btn)
-        self.sidebar_buttons.append(capture_btn)
-
-        # Annotate button
-        annotate_btn = SidebarButton("🏷️")
-        annotate_btn.setToolTip("Annotate Dataset")
-        annotate_btn.clicked.connect(lambda: self.switch_to_page(self.PAGE_ANNOTATE, annotate_btn))
-        sidebar_layout.addWidget(annotate_btn)
-        self.sidebar_buttons.append(annotate_btn)
-
-        # Train button
-        train_btn = SidebarButton("🧠")
-        train_btn.setToolTip("Train Model")
-        train_btn.clicked.connect(lambda: self.switch_to_page(self.PAGE_TRAIN, train_btn))
-        sidebar_layout.addWidget(train_btn)
-        self.sidebar_buttons.append(train_btn)
-
-        sidebar_layout.addStretch()
-
-        # Settings button at bottom
-        settings_btn = SidebarButton("⚙️")
-        settings_btn.setToolTip("Settings")
-        settings_btn.clicked.connect(lambda: self.switch_to_page(self.PAGE_SETTINGS, settings_btn))
-        sidebar_layout.addWidget(settings_btn)
-        self.sidebar_buttons.append(settings_btn)
-
-        # Power button at very bottom
-        power_btn = SidebarButton("⏻")
-        power_btn.setToolTip("Exit")
-        power_btn.clicked.connect(self.close)
-        sidebar_layout.addWidget(power_btn)
-
-        return sidebar
-
-    def switch_to_page(self, page_index, clicked_button=None):
-        """Switch to a different page in the stacked widget."""
-        self.stacked_widget.setCurrentIndex(page_index)
-
-        # Update button states
-        if clicked_button:
-            for btn in self.sidebar_buttons:
-                btn.setChecked(btn == clicked_button)
-
-        # Handle page-specific logic
-        if page_index == self.PAGE_DATASET:
-            self.is_capturing = True
-            # Load existing images on first visit to dataset page
+    def open_dataset_window(self):
+        """Open dataset collection in a separate window."""
+        if self.dataset_dialog is None or not self.dataset_dialog.isVisible():
+            self.dataset_page = DatasetPage(parent=self)
             if not self.gallery_loaded and hasattr(self.dataset_page, 'load_existing_samples'):
                 self.dataset_page.load_existing_samples()
                 self.gallery_loaded = True
+            self.dataset_dialog = PageDialog("InspektLine - Dataset Collection", self.dataset_page, self)
+            self.is_capturing = True
+            self.dataset_dialog.show()
         else:
-            self.is_capturing = False
+            self.dataset_dialog.raise_()
+            self.dataset_dialog.activateWindow()
 
-        # Refresh home page when navigating to it
-        if page_index == self.PAGE_HOME and hasattr(self.home_page, 'refresh_state'):
-            self.home_page.refresh_state()
+    def open_camera_window(self):
+        """Open camera feed in a separate window."""
+        if self.camera_dialog is None or not self.camera_dialog.isVisible():
+            self.camera_page = CameraPage(parent=self)
+            self.camera_dialog = PageDialog("InspektLine - Camera Feed", self.camera_page, self)
+            self.camera_dialog.show()
+        else:
+            self.camera_dialog.raise_()
+            self.camera_dialog.activateWindow()
+
+    def open_annotator_window(self):
+        """Open annotator in a separate window."""
+        if self.annotator_dialog is None or not self.annotator_dialog.isVisible():
+            self.annotator_page = AnnotatorPage(parent=self)
+            self.annotator_dialog = PageDialog("InspektLine - Annotator", self.annotator_page, self)
+            self.annotator_dialog.show()
+        else:
+            self.annotator_dialog.raise_()
+            self.annotator_dialog.activateWindow()
+
+    def open_training_window(self):
+        """Open training in a separate window."""
+        if self.training_dialog is None or not self.training_dialog.isVisible():
+            self.training_page = TrainingPage(parent=self)
+            self.training_dialog = PageDialog("InspektLine - Training", self.training_page, self)
+            self.training_dialog.show()
+        else:
+            self.training_dialog.raise_()
+            self.training_dialog.activateWindow()
 
     # ========================
     # Camera Methods
@@ -266,18 +208,21 @@ class MainWindow(QMainWindow):
                 self.current_frame = frame.copy()
                 self.frame_count += 1
 
-                # Update camera page video label
-                if hasattr(self.camera_page, 'video_label'):
-                    self.camera_page.video_label.display_frame(frame)
+                # Update camera page video label if dialog is open
+                if self.camera_dialog and self.camera_dialog.isVisible():
+                    if hasattr(self.camera_page, 'video_label'):
+                        self.camera_page.video_label.display_frame(frame)
 
-                # Update dataset page video label
-                if hasattr(self.dataset_page, 'video_label'):
-                    self.dataset_page.video_label.display_frame(frame)
+                # Update dataset page video label if dialog is open
+                if self.dataset_dialog and self.dataset_dialog.isVisible():
+                    if hasattr(self.dataset_page, 'video_label'):
+                        self.dataset_page.video_label.display_frame(frame)
 
                 # Update resolution info on camera page
-                if hasattr(self.camera_page, 'resolution_value') and self.frame_count == 1:
-                    height, width = frame.shape[:2]
-                    self.camera_page.resolution_value.setText(f"{width}×{height}")
+                if self.camera_dialog and self.camera_dialog.isVisible():
+                    if hasattr(self.camera_page, 'resolution_value') and self.frame_count == 1:
+                        height, width = frame.shape[:2]
+                        self.camera_page.resolution_value.setText(f"{width}×{height}")
 
     def refresh_camera(self):
         """Refresh camera connection."""
@@ -395,14 +340,15 @@ class MainWindow(QMainWindow):
         print(f"Saved sample: {save_path}")
 
         # Update dataset page if available - sync counters first
-        if hasattr(self.dataset_page, 'update_statistics'):
-            self.dataset_page.total_samples = self.total_samples
-            self.dataset_page.ok_samples = self.ok_samples
-            self.dataset_page.not_ok_samples = self.not_ok_samples
-            self.dataset_page.update_statistics()
+        if hasattr(self, 'dataset_page') and self.dataset_page:
+            if hasattr(self.dataset_page, 'update_statistics'):
+                self.dataset_page.total_samples = self.total_samples
+                self.dataset_page.ok_samples = self.ok_samples
+                self.dataset_page.not_ok_samples = self.not_ok_samples
+                self.dataset_page.update_statistics()
 
-        if hasattr(self.dataset_page, 'add_to_gallery'):
-            self.dataset_page.add_to_gallery(save_path, label_type)
+            if hasattr(self.dataset_page, 'add_to_gallery'):
+                self.dataset_page.add_to_gallery(save_path, label_type)
 
     # ========================
     # Event Handlers
@@ -413,12 +359,19 @@ class MainWindow(QMainWindow):
         self.stop_video()
         if self.cap is not None:
             self.camera.release_cap(self.cap)
+
+        # Close any open dialogs
+        for dialog in [self.settings_dialog, self.dataset_dialog, self.camera_dialog,
+                       self.annotator_dialog, self.training_dialog]:
+            if dialog and dialog.isVisible():
+                dialog.close()
+
         event.accept()
 
     def keyPressEvent(self, event):
         """Handle keyboard shortcuts."""
-        # Dataset collection shortcuts
-        if self.stacked_widget.currentIndex() == self.PAGE_DATASET:
+        # Dataset collection shortcuts when dataset dialog is open
+        if self.dataset_dialog and self.dataset_dialog.isVisible():
             if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Right):
                 self.capture_sample("OK")
             elif event.key() in (Qt.Key.Key_Backspace, Qt.Key.Key_Left):
