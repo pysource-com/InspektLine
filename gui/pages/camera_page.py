@@ -8,11 +8,19 @@ from gui.styles import StyleSheets, DarkTheme
 
 
 class CameraPage(QWidget):
-    """Main camera feed page with controls."""
+    """Main camera feed page with controls.
 
-    def __init__(self, parent=None):
+    Receives services via constructor injection from MainWindow._open_dialog().
+    """
+
+    def __init__(self, settings_service=None, camera_service=None,
+                 dataset_service=None, inspection_service=None,
+                 db=None, parent=None):
         super().__init__(parent)
-        self.parent_window = parent
+        self._settings = settings_service
+        self._camera = camera_service
+        self._inspection = inspection_service
+        self._parent_window = parent
         self.init_ui()
 
     def init_ui(self):
@@ -21,15 +29,12 @@ class CameraPage(QWidget):
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(15)
 
-        # Header
         header_layout = self.create_header()
         layout.addLayout(header_layout)
 
-        # Video display
         video_container = self.create_video_container()
         layout.addWidget(video_container, stretch=1)
 
-        # Bottom control panel
         bottom_panel = self.create_bottom_panel()
         layout.addWidget(bottom_panel)
 
@@ -37,7 +42,6 @@ class CameraPage(QWidget):
         """Create the page header with title and controls."""
         header_layout = QHBoxLayout()
 
-        # Title with LIVE badge
         title_widget = QWidget()
         title_layout = QHBoxLayout(title_widget)
         title_layout.setContentsMargins(0, 0, 0, 0)
@@ -66,7 +70,6 @@ class CameraPage(QWidget):
         header_layout.addWidget(title_widget)
         header_layout.addStretch()
 
-        # Control buttons
         control_buttons_layout = QHBoxLayout()
         control_buttons_layout.setSpacing(10)
 
@@ -83,8 +86,8 @@ class CameraPage(QWidget):
         refresh_btn = QPushButton("🔄")
         refresh_btn.setFixedSize(40, 40)
         refresh_btn.setStyleSheet(StyleSheets.get_icon_button_style())
-        if self.parent_window:
-            refresh_btn.clicked.connect(self.parent_window.refresh_camera)
+        if self._parent_window and hasattr(self._parent_window, "refresh_camera"):
+            refresh_btn.clicked.connect(self._parent_window.refresh_camera)
         control_buttons_layout.addWidget(refresh_btn)
 
         fullscreen_btn = QPushButton("⛶")
@@ -93,7 +96,6 @@ class CameraPage(QWidget):
         control_buttons_layout.addWidget(fullscreen_btn)
 
         header_layout.addLayout(control_buttons_layout)
-
         return header_layout
 
     def create_video_container(self):
@@ -109,11 +111,9 @@ class CameraPage(QWidget):
         video_layout = QVBoxLayout(video_container)
         video_layout.setContentsMargins(10, 10, 10, 10)
 
-        # Create video label
         self.video_label = VideoLabel()
         video_layout.addWidget(self.video_label)
 
-        # Add info overlay at the bottom
         info_overlay = self.create_info_overlay()
         video_layout.addWidget(info_overlay)
 
@@ -122,19 +122,13 @@ class CameraPage(QWidget):
     def create_info_overlay(self):
         """Create an info overlay showing frame details."""
         overlay = QWidget()
-        overlay.setStyleSheet(f"""
-            QWidget {{
-                background-color: rgba(0, 0, 0, 180);
-                border-radius: 6px;
-            }}
-        """)
+        overlay.setStyleSheet("background-color: rgba(0, 0, 0, 180); border-radius: 6px;")
         overlay.setMaximumHeight(40)
 
         overlay_layout = QHBoxLayout(overlay)
         overlay_layout.setContentsMargins(15, 8, 15, 8)
         overlay_layout.setSpacing(20)
 
-        # Connection status indicator
         self.status_indicator = QLabel("●")
         self.status_indicator.setStyleSheet(f"color: {DarkTheme.SUCCESS}; font-size: 16px;")
         overlay_layout.addWidget(self.status_indicator)
@@ -145,7 +139,6 @@ class CameraPage(QWidget):
 
         overlay_layout.addStretch()
 
-        # FPS counter
         fps_label = QLabel("FPS:")
         fps_label.setStyleSheet(f"color: {DarkTheme.TEXT_SECONDARY}; font-size: 11px;")
         overlay_layout.addWidget(fps_label)
@@ -154,7 +147,6 @@ class CameraPage(QWidget):
         self.fps_value.setStyleSheet(f"color: {DarkTheme.TEXT_PRIMARY}; font-size: 12px; font-weight: bold;")
         overlay_layout.addWidget(self.fps_value)
 
-        # Resolution info
         res_label = QLabel("Resolution:")
         res_label.setStyleSheet(f"color: {DarkTheme.TEXT_SECONDARY}; font-size: 11px; margin-left: 15px;")
         overlay_layout.addWidget(res_label)
@@ -178,20 +170,16 @@ class CameraPage(QWidget):
         panel_layout.setContentsMargins(20, 15, 20, 15)
         panel_layout.setSpacing(15)
 
-
-        # Buttons row
         buttons_layout = self.create_button_row()
         panel_layout.addLayout(buttons_layout)
 
         return panel
-
 
     def create_button_row(self):
         """Create the bottom button row."""
         buttons_layout = QHBoxLayout()
         buttons_layout.setSpacing(15)
 
-        # Start Inspection button
         start_btn = QPushButton("▶ Start Inspection")
         start_btn.setFixedHeight(50)
         start_btn.setStyleSheet(f"""
@@ -211,21 +199,18 @@ class CameraPage(QWidget):
                 background-color: {DarkTheme.PRIMARY_PRESSED};
             }}
         """)
-        if self.parent_window:
-            start_btn.clicked.connect(self.parent_window.toggle_inspection)
+        if self._parent_window and hasattr(self._parent_window, "toggle_inspection"):
+            start_btn.clicked.connect(self._parent_window.toggle_inspection)
         buttons_layout.addWidget(start_btn, stretch=2)
 
-        # Capture button
         capture_btn = self.create_control_button("📷 Capture")
         buttons_layout.addWidget(capture_btn)
 
-        # Pause button
         pause_btn = self.create_control_button("⏸", is_square=True)
-        if self.parent_window:
-            pause_btn.clicked.connect(self.parent_window.toggle_pause)
+        if self._parent_window and hasattr(self._parent_window, "toggle_pause"):
+            pause_btn.clicked.connect(self._parent_window.toggle_pause)
         buttons_layout.addWidget(pause_btn)
 
-        # Record button
         record_btn = self.create_control_button("⏺", is_square=True, color=DarkTheme.ERROR)
         buttons_layout.addWidget(record_btn)
 

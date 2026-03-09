@@ -346,14 +346,19 @@ class AnnotationItem(QWidget):
 
 
 class AnnotatorPage(QWidget):
-    """Page for annotating images with bounding boxes."""
+    """Page for annotating images with bounding boxes.
+
+    Receives services via constructor injection from MainWindow._open_dialog().
+    """
 
     navigate_back = Signal()
 
-    def __init__(self, parent=None):
+    def __init__(self, settings_service=None, camera_service=None,
+                 dataset_service=None, inspection_service=None,
+                 db=None, parent=None):
         super().__init__(parent)
-        self.parent_window = parent
-        self.db = ProjectDatabase()
+        self._parent_window = parent
+        self.db = db if db is not None else ProjectDatabase()
 
         # State
         self.images: List[ImageRecord] = []

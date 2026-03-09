@@ -3,7 +3,9 @@
 import sys
 from pathlib import Path
 from PySide6.QtWidgets import QApplication
-from gui.py import VideoDisplayWidget
+from services.settings_service import SettingsService
+from services.dataset_service import DatasetService
+from database.project_db import ProjectDatabase
 
 def test_storage_creation():
     """Test that storage directories are created."""
@@ -24,21 +26,47 @@ def test_storage_creation():
         notok_files = list(not_ok_path.glob("*.jpg"))
         print(f"NOT OK samples: {len(notok_files)}")
 
+def test_dataset_service():
+    """Test DatasetService independently (no GUI needed)."""
+    settings = SettingsService()
+    db = ProjectDatabase(settings.storage_cfg.database_path)
+    svc = DatasetService(settings, db)
+
+    samples = svc.load_existing()
+    stats = svc.stats
+    print(f"\nDatasetService stats: total={stats.total}, ok={stats.ok}, not_ok={stats.not_ok}")
+    print(f"Recent samples: {len(samples)}")
+    db.close()
+
 def main():
-    """Run the application in test mode."""
+    """Run dataset tests."""
     print("Starting InspektLine Dataset Test...")
     test_storage_creation()
+    test_dataset_service()
 
     print("\nLaunching GUI...")
+    from services.camera_service import CameraService
+    from services.inspection_service import InspectionService
+    from gui.main_window import MainWindow
+
+    settings = SettingsService()
+    db = ProjectDatabase(settings.storage_cfg.database_path)
+    camera_svc = CameraService(settings)
+    dataset_svc = DatasetService(settings, db)
+    inspection_svc = InspectionService(settings, camera_svc)
+
     app = QApplication(sys.argv)
-    window = VideoDisplayWidget(camera_index=0, camera_type="usb-standard")
+    window = MainWindow(
+        settings_service=settings,
+        camera_service=camera_svc,
+        dataset_service=dataset_svc,
+        inspection_service=inspection_svc,
+        db=db,
+    )
     window.show()
 
-    print("GUI launched. Switch to Dataset page and press OK/NOT OK buttons to test.")
-    print("Images will be saved to storage/dataset/ok and storage/dataset/not_ok")
-
+    print("GUI launched. Open Dataset page and press OK/NOT OK buttons to test.")
     sys.exit(app.exec())
 
 if __name__ == "__main__":
     main()
-

@@ -127,7 +127,11 @@ class HomePage(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.parent_window = parent
-        self.db = ProjectDatabase()
+        # Use db from parent (MainWindow) if available, otherwise create own
+        if parent and hasattr(parent, 'db'):
+            self.db = parent.db
+        else:
+            self.db = ProjectDatabase()
 
         # UI elements
         self.step1 = None

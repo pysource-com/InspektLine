@@ -262,21 +262,33 @@ class LabelButton(QPushButton):
 # ============== Main Dataset Page ==============
 
 class DatasetPage(QWidget):
-    """Dataset & Training page with tabbed interface."""
+    """Dataset & Training page with tabbed interface.
+
+    Receives services via constructor injection from MainWindow._open_dialog().
+    """
 
     navigate_back = Signal()
 
-    def __init__(self, parent=None):
+    def __init__(self, settings_service=None, camera_service=None,
+                 dataset_service=None, inspection_service=None,
+                 db=None, parent=None):
         super().__init__(parent)
-        self.parent_window = parent
-        self.db = ProjectDatabase()
+        self._parent_window = parent
+        self._settings = settings_service
+        self._camera = camera_service
+        self._dataset_svc = dataset_service
+        self.db = db if db is not None else ProjectDatabase()
 
-        # Storage paths
-        self.storage_path = Path("storage/dataset")
-        self.ok_path = self.storage_path / "ok"
-        self.not_ok_path = self.storage_path / "not_ok"
-        self.ok_path.mkdir(parents=True, exist_ok=True)
-        self.not_ok_path.mkdir(parents=True, exist_ok=True)
+        # Storage paths (from service or defaults)
+        if dataset_service:
+            self.ok_path = dataset_service.ok_path
+            self.not_ok_path = dataset_service.notok_path
+        else:
+            self.storage_path = Path("storage/dataset")
+            self.ok_path = self.storage_path / "ok"
+            self.not_ok_path = self.storage_path / "not_ok"
+            self.ok_path.mkdir(parents=True, exist_ok=True)
+            self.not_ok_path.mkdir(parents=True, exist_ok=True)
 
         # UI references
         self.stacked_widget = None
@@ -725,8 +737,8 @@ class DatasetPage(QWidget):
         refresh_btn = QPushButton("🔄")
         refresh_btn.setFixedSize(36, 36)
         refresh_btn.setStyleSheet(StyleSheets.get_icon_button_style())
-        if self.parent_window:
-            refresh_btn.clicked.connect(self.parent_window.refresh_camera)
+        if self._parent_window and hasattr(self._parent_window, 'refresh_camera'):
+            refresh_btn.clicked.connect(self._parent_window.refresh_camera)
         header.addWidget(refresh_btn)
 
         layout.addLayout(header)
@@ -856,26 +868,40 @@ class DatasetPage(QWidget):
         return panel
 
     def _capture_sample(self, label_type: str):
-        """Capture and save a sample image."""
-        if not self.parent_window or not hasattr(self.parent_window, 'get_current_frame'):
-            return
+        """Capture and save a sample image via DatasetService."""
+        # Get frame from camera service or parent window
+        frame = None
+        if self._camera:
+            frame = self._camera.current_frame
+        elif self._parent_window and hasattr(self._parent_window, 'get_current_frame'):
+            frame = self._parent_window.get_current_frame()
 
-        frame = self.parent_window.get_current_frame()
         if frame is None:
             return
 
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
+        defect_category = ""
+        if label_type == "NOT_OK" and self.defect_category_combo:
+            defect_category = self.defect_category_combo.currentText()
 
-        if label_type == "OK":
-            save_path = self.ok_path / f"ok_{timestamp}.jpg"
-            self.ok_samples += 1
+        # Delegate to service
+        if self._dataset_svc:
+            save_path = self._dataset_svc.capture(label_type, frame, defect_category)
+            stats = self._dataset_svc.stats
+            self.ok_samples = stats.ok
+            self.not_ok_samples = stats.not_ok
+            self.total_samples = stats.total
         else:
-            category = self.defect_category_combo.currentText().replace(" ", "_").lower()
-            save_path = self.not_ok_path / f"notok_{category}_{timestamp}.jpg"
-            self.not_ok_samples += 1
-
-        cv2.imwrite(str(save_path), frame)
-        self.total_samples += 1
+            # Fallback: inline capture (for backwards compat)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
+            if label_type == "OK":
+                save_path = self.ok_path / f"ok_{timestamp}.jpg"
+                self.ok_samples += 1
+            else:
+                category = defect_category.replace(" ", "_").lower()
+                save_path = self.not_ok_path / f"notok_{category}_{timestamp}.jpg"
+                self.not_ok_samples += 1
+            cv2.imwrite(str(save_path), frame)
+            self.total_samples += 1
 
         self._update_collect_stats()
         self._add_to_gallery(save_path, label_type)

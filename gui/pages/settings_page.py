@@ -7,14 +7,21 @@ from gui.styles import DarkTheme, StyleSheets
 
 
 class SettingsPage(QWidget):
-    """Minimal settings configuration page."""
+    """Minimal settings configuration page.
+
+    Receives services via constructor injection from MainWindow._open_dialog().
+    """
 
     # Signal when settings dialog should close
     close_requested = Signal()
 
-    def __init__(self, parent=None):
+    def __init__(self, settings_service=None, camera_service=None,
+                 dataset_service=None, inspection_service=None,
+                 db=None, parent=None):
         super().__init__(parent)
-        self.parent_window = parent
+        self._settings = settings_service
+        self._camera = camera_service
+        self._parent_window = parent
         self.init_ui()
 
     def init_ui(self):
@@ -166,8 +173,13 @@ class SettingsPage(QWidget):
         self.camera_device_combo.addItems([
             "Camera 0",
             "Camera 1",
-            "Camera 2"
+            "Camera 2",
         ])
+        # Select current camera from settings
+        if self._settings:
+            idx = self._settings.camera.camera_index
+            if 0 <= idx < self.camera_device_combo.count():
+                self.camera_device_combo.setCurrentIndex(idx)
 
     def _create_model_section(self):
         """Create active detection model section."""
@@ -239,28 +251,25 @@ class SettingsPage(QWidget):
         slider_layout.setContentsMargins(0, 0, 0, 0)
         slider_layout.setSpacing(5)
 
+        initial_threshold = 85
+        if self._settings:
+            initial_threshold = self._settings.detection.confidence_threshold
+
         self.confidence_slider = QSlider(Qt.Orientation.Horizontal)
         self.confidence_slider.setMinimum(50)
         self.confidence_slider.setMaximum(99)
-        self.confidence_slider.setValue(85)
+        self.confidence_slider.setValue(initial_threshold)
         self.confidence_slider.setStyleSheet(f"""
             QSlider::groove:horizontal {{
-                border: none;
-                height: 6px;
-                background: {DarkTheme.BG_INPUT};
-                border-radius: 3px;
+                border: none; height: 6px;
+                background: {DarkTheme.BG_INPUT}; border-radius: 3px;
             }}
             QSlider::handle:horizontal {{
-                background: {DarkTheme.PRIMARY};
-                border: 2px solid white;
-                width: 16px;
-                height: 16px;
-                margin: -6px 0;
-                border-radius: 9px;
+                background: {DarkTheme.PRIMARY}; border: 2px solid white;
+                width: 16px; height: 16px; margin: -6px 0; border-radius: 9px;
             }}
             QSlider::sub-page:horizontal {{
-                background: {DarkTheme.PRIMARY};
-                border-radius: 3px;
+                background: {DarkTheme.PRIMARY}; border-radius: 3px;
             }}
         """)
         slider_layout.addWidget(self.confidence_slider)
@@ -273,7 +282,7 @@ class SettingsPage(QWidget):
         min_label.setStyleSheet(f"font-size: 11px; color: {DarkTheme.TEXT_DISABLED};")
         labels_layout.addWidget(min_label)
 
-        self.threshold_value_label = QLabel("85%")
+        self.threshold_value_label = QLabel(f"{initial_threshold}%")
         self.threshold_value_label.setStyleSheet(f"font-size: 11px; color: {DarkTheme.TEXT_SECONDARY};")
         self.threshold_value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         labels_layout.addWidget(self.threshold_value_label)
@@ -284,13 +293,11 @@ class SettingsPage(QWidget):
         labels_layout.addWidget(max_label)
 
         slider_layout.addLayout(labels_layout)
-        threshold_layout.addWidget(slider_container)
-
-        # Connect slider to update label
         self.confidence_slider.valueChanged.connect(
             lambda v: self.threshold_value_label.setText(f"{v}%")
         )
 
+        threshold_layout.addWidget(slider_container)
         card_layout.addWidget(threshold_container)
 
         # Detection Frequency
@@ -305,14 +312,13 @@ class SettingsPage(QWidget):
 
         self.frequency_combo = QComboBox()
         self.frequency_combo.addItems([
-            "Every 0.5 seconds",
-            "Every 1 second",
-            "Every 1.5 seconds",
-            "Every 2 seconds",
-            "Every 3 seconds",
-            "Continuous"
+            "Every 0.5 seconds", "Every 1 second", "Every 1.5 seconds",
+            "Every 2 seconds", "Every 3 seconds", "Continuous",
         ])
-        self.frequency_combo.setCurrentText("Every 1.5 seconds")
+        initial_freq = "Every 1.5 seconds"
+        if self._settings:
+            initial_freq = self._settings.detection.detection_frequency
+        self.frequency_combo.setCurrentText(initial_freq)
         self.frequency_combo.setStyleSheet(StyleSheets.get_combobox_style())
         self.frequency_combo.setFixedHeight(45)
         frequency_layout.addWidget(self.frequency_combo)
@@ -336,18 +342,20 @@ class SettingsPage(QWidget):
         self._on_close_clicked()
 
     def _save_settings(self):
-        """Save current settings."""
-        if self.parent_window:
-            # Update parent window's confidence threshold
-            self.parent_window.confidence_threshold = self.confidence_slider.value()
+        """Persist current UI state back to SettingsService."""
+        if not self._settings:
+            return
 
-            # Update camera device if changed
-            if hasattr(self.parent_window, 'camera_index'):
-                new_index = self.camera_device_combo.currentIndex()
-                if new_index != self.parent_window.camera_index:
-                    self.parent_window.camera_index = new_index
-                    if hasattr(self.parent_window, 'refresh_camera'):
-                        self.parent_window.refresh_camera()
+        self._settings.detection.confidence_threshold = self.confidence_slider.value()
+        self._settings.detection.detection_frequency = self.frequency_combo.currentText()
+
+        new_index = self.camera_device_combo.currentIndex()
+        if new_index != self._settings.camera.camera_index:
+            self._settings.camera.camera_index = new_index
+            if self._parent_window and hasattr(self._parent_window, "refresh_camera"):
+                self._parent_window.refresh_camera()
+
+        self._settings.save()
 
     def get_settings(self) -> dict:
         """Get all current settings."""

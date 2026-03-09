@@ -18,63 +18,72 @@ def check_storage():
     print("="*50)
 
     if not storage_path.exists():
-        print("❌ Storage directory doesn't exist yet")
+        print("Storage directory doesn't exist yet")
         return
 
-    print(f"✓ Storage path: {storage_path.absolute()}")
+    print(f"Storage path: {storage_path.absolute()}")
 
     if ok_path.exists():
         ok_files = list(ok_path.glob("*.jpg"))
-        print(f"✓ OK path: {len(ok_files)} images")
-        for f in ok_files[:3]:  # Show first 3
+        print(f"OK path: {len(ok_files)} images")
+        for f in ok_files[:3]:
             print(f"  - {f.name}")
     else:
-        print("❌ OK path doesn't exist")
+        print("OK path doesn't exist")
 
     if not_ok_path.exists():
         notok_files = list(not_ok_path.glob("*.jpg"))
-        print(f"✓ NOT OK path: {len(notok_files)} images")
-        for f in notok_files[:3]:  # Show first 3
+        print(f"NOT OK path: {len(notok_files)} images")
+        for f in notok_files[:3]:
             print(f"  - {f.name}")
     else:
-        print("❌ NOT OK path doesn't exist")
+        print("NOT OK path doesn't exist")
 
     print("="*50)
 
 def main():
     """Run the GUI and check gallery."""
-    print("\n🧪 TESTING GALLERY FUNCTIONALITY\n")
-
-    # Check storage first
+    print("\nTESTING GALLERY FUNCTIONALITY\n")
     check_storage()
 
-    print("\n📋 TEST INSTRUCTIONS:")
+    print("\nTEST INSTRUCTIONS:")
     print("1. Application will launch")
-    print("2. Click the Dataset icon (📁 2nd icon in sidebar)")
-    print("3. Check if gallery shows existing images")
-    print("4. Press OK or NOT OK button to capture")
-    print("5. Verify new thumbnail appears at top of gallery")
-    print("6. Verify badges update (OK: X, NG: X)")
-    print("\n✨ Gallery should update INSTANTLY when you capture!\n")
+    print("2. Click 'Manage Dataset' button")
+    print("3. Switch to 'Collect Images' tab")
+    print("4. Check if gallery shows existing images")
+    print("5. Press OK or NOT OK button to capture")
+    print("6. Verify new thumbnail appears at top of gallery")
 
     input("Press Enter to launch GUI...")
 
-    # Import and run GUI
-    try:
-        from gui import VideoDisplayWidget
-        app = QApplication(sys.argv)
-        window = VideoDisplayWidget(camera_index=0, camera_type="usb-standard")
-        window.show()
+    from services.settings_service import SettingsService
+    from services.camera_service import CameraService
+    from services.dataset_service import DatasetService
+    from services.inspection_service import InspectionService
+    from database.project_db import ProjectDatabase
+    from gui.main_window import MainWindow
 
-        print("\n✅ GUI launched successfully!")
-        print("📸 Switch to Dataset page to test gallery...")
+    settings = SettingsService()
+    db = ProjectDatabase(settings.storage_cfg.database_path)
+    camera_svc = CameraService(settings)
+    dataset_svc = DatasetService(settings, db)
+    inspection_svc = InspectionService(settings, camera_svc)
 
-        sys.exit(app.exec())
-    except Exception as e:
-        print(f"\n❌ Error launching GUI: {e}")
-        import traceback
-        traceback.print_exc()
+    app = QApplication(sys.argv)
+    window = MainWindow(
+        settings_service=settings,
+        camera_service=camera_svc,
+        dataset_service=dataset_svc,
+        inspection_service=inspection_svc,
+        db=db,
+    )
+    window.show()
+
+    print("\nGUI launched successfully!")
+    print("Open Dataset page to test gallery...")
+
+    sys.exit(app.exec())
+
 
 if __name__ == "__main__":
     main()
-
