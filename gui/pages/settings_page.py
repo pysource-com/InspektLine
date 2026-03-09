@@ -1,8 +1,8 @@
-"""Settings page with minimal, focused UI."""
+"""Settings page — camera selection only."""
 
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-                                QPushButton, QFrame, QComboBox, QSlider)
-from PySide6.QtCore import Qt, Signal
+                                QPushButton, QFrame, QComboBox)
+from PySide6.QtCore import Signal
 from gui.styles import DarkTheme, StyleSheets
 
 
@@ -14,6 +14,14 @@ class SettingsPage(QWidget):
 
     # Signal when settings dialog should close
     close_requested = Signal()
+
+    # Mapping between UI display names and internal camera type identifiers
+    CAMERA_TYPE_MAP = {
+        "USB Webcam": "usb-standard",
+        "Intel RealSense": "intel-realsense",
+        "Daheng GigE": "daheng-gige",
+    }
+    CAMERA_TYPE_REVERSE = {v: k for k, v in CAMERA_TYPE_MAP.items()}
 
     def __init__(self, settings_service=None, camera_service=None,
                  inspection_service=None, parent=None, **kwargs):
@@ -36,14 +44,6 @@ class SettingsPage(QWidget):
         # Camera Selection section
         camera_section = self._create_camera_section()
         main_layout.addWidget(camera_section)
-
-        # Active Detection Model section
-        model_section = self._create_model_section()
-        main_layout.addWidget(model_section)
-
-        # Detection Settings section
-        detection_section = self._create_detection_section()
-        main_layout.addWidget(detection_section)
 
         # Spacer
         main_layout.addStretch()
@@ -88,7 +88,7 @@ class SettingsPage(QWidget):
         title.setStyleSheet("font-size: 24px; font-weight: bold; color: #fff;")
         title_layout.addWidget(title)
 
-        subtitle = QLabel("Configure inspection parameters")
+        subtitle = QLabel("Select camera type and device")
         subtitle.setStyleSheet(f"font-size: 13px; color: {DarkTheme.TEXT_SECONDARY};")
         title_layout.addWidget(subtitle)
 
@@ -96,7 +96,7 @@ class SettingsPage(QWidget):
         header_layout.addStretch()
 
         # Close button
-        close_btn = QPushButton("×")
+        close_btn = QPushButton("\u00d7")
         close_btn.setFixedSize(32, 32)
         close_btn.setStyleSheet(f"""
             QPushButton {{
@@ -135,7 +135,7 @@ class SettingsPage(QWidget):
         return card
 
     def _create_camera_section(self):
-        """Create camera selection section."""
+        """Create camera selection section with type and device dropdowns."""
         container = QWidget()
         layout = QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -148,193 +148,130 @@ class SettingsPage(QWidget):
         card = self._create_card()
         card_layout = QVBoxLayout(card)
         card_layout.setContentsMargins(15, 15, 15, 15)
-        card_layout.setSpacing(10)
+        card_layout.setSpacing(12)
 
-        # Camera Device label
+        # ---- Camera Type ----
+        type_label = QLabel("Camera Type")
+        type_label.setStyleSheet(f"font-size: 12px; color: {DarkTheme.TEXT_SECONDARY};")
+        card_layout.addWidget(type_label)
+
+        self.camera_type_combo = QComboBox()
+        self.camera_type_combo.addItems(list(self.CAMERA_TYPE_MAP.keys()))
+        self.camera_type_combo.setStyleSheet(StyleSheets.get_combobox_style())
+        self.camera_type_combo.setFixedHeight(45)
+        card_layout.addWidget(self.camera_type_combo)
+
+        # Select current type from settings
+        if self._settings:
+            display = self.CAMERA_TYPE_REVERSE.get(
+                self._settings.camera.camera_type, "USB Webcam"
+            )
+            idx = self.camera_type_combo.findText(display)
+            if idx >= 0:
+                self.camera_type_combo.setCurrentIndex(idx)
+
+        # ---- Camera Device ----
         device_label = QLabel("Camera Device")
-        device_label.setStyleSheet(f"font-size: 12px; color: {DarkTheme.TEXT_SECONDARY};")
+        device_label.setStyleSheet(
+            f"font-size: 12px; color: {DarkTheme.TEXT_SECONDARY}; margin-top: 6px;"
+        )
         card_layout.addWidget(device_label)
 
-        # Camera device dropdown
         self.camera_device_combo = QComboBox()
         self.camera_device_combo.setStyleSheet(StyleSheets.get_combobox_style())
         self.camera_device_combo.setFixedHeight(45)
-        self._populate_camera_devices()
         card_layout.addWidget(self.camera_device_combo)
 
+        # Status label (shown when no devices found)
+        self.status_label = QLabel("")
+        self.status_label.setStyleSheet(
+            f"color: {DarkTheme.TEXT_SECONDARY}; font-size: 11px; "
+            f"font-style: italic; margin-top: 4px;"
+        )
+        self.status_label.setWordWrap(True)
+        self.status_label.hide()
+        card_layout.addWidget(self.status_label)
+
+        # Refresh button
+        self.refresh_btn = QPushButton("Refresh devices")
+        self.refresh_btn.setFixedHeight(36)
+        self.refresh_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: transparent;
+                color: {DarkTheme.PRIMARY};
+                border: 1px solid {DarkTheme.PRIMARY};
+                border-radius: 6px;
+                font-size: 12px;
+                padding: 0 16px;
+            }}
+            QPushButton:hover {{
+                background-color: {DarkTheme.PRIMARY};
+                color: white;
+            }}
+        """)
+        self.refresh_btn.clicked.connect(self._populate_camera_devices)
+        card_layout.addWidget(self.refresh_btn)
+
         layout.addWidget(card)
+
+        # Wire type change → re-enumerate devices
+        self.camera_type_combo.currentIndexChanged.connect(
+            lambda _: self._populate_camera_devices()
+        )
+
+        # Initial population
+        self._populate_camera_devices()
+
         return container
 
     def _populate_camera_devices(self):
-        """Populate camera device dropdown with available cameras."""
-        # Use a simple static list - camera validation happens when actually used
-        # This avoids OpenCV warning spam during settings initialization
-        self.camera_device_combo.addItems([
-            "Camera 0",
-            "Camera 1",
-            "Camera 2",
-        ])
-        # Select current camera from settings
-        if self._settings:
-            idx = self._settings.camera.camera_index
-            if 0 <= idx < self.camera_device_combo.count():
-                self.camera_device_combo.setCurrentIndex(idx)
-
-    def _create_model_section(self):
-        """Create active detection model section."""
-        container = QWidget()
-        layout = QVBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
-
-        # Section title
-        layout.addWidget(self._create_section_title("Active Detection Model"))
-
-        # Card
-        card = self._create_card()
-        card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(20, 20, 20, 20)
-        card_layout.setSpacing(8)
-
-        # Model path label
-        model_path_label = QLabel("Model Path")
-        model_path_label.setStyleSheet(f"font-size: 12px; color: {DarkTheme.TEXT_SECONDARY};")
-        card_layout.addWidget(model_path_label)
-
-        # Current model display
-        current_model = ""
-        if self._settings:
-            current_model = self._settings.detection.active_model_path
-
-        self.model_path_display = QLabel(current_model or "No model loaded")
-        self.model_path_display.setStyleSheet(
-            f"font-size: 13px; color: {DarkTheme.TEXT_PRIMARY if current_model else DarkTheme.TEXT_DISABLED};"
-        )
-        self.model_path_display.setWordWrap(True)
-        card_layout.addWidget(self.model_path_display)
-
-        layout.addWidget(card)
-        return container
-
-    def _create_detection_section(self):
-        """Create detection settings section."""
-        container = QWidget()
-        layout = QVBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
-
-        # Section title
-        layout.addWidget(self._create_section_title("Detection Settings"))
-
-        # Card
-        card = self._create_card()
-        card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(15, 15, 15, 15)
-        card_layout.setSpacing(15)
-
-        # Confidence Threshold
-        threshold_container = QWidget()
-        threshold_layout = QVBoxLayout(threshold_container)
-        threshold_layout.setContentsMargins(0, 0, 0, 0)
-        threshold_layout.setSpacing(8)
-
-        threshold_label = QLabel("Confidence Threshold")
-        threshold_label.setStyleSheet(f"font-size: 12px; color: {DarkTheme.TEXT_SECONDARY};")
-        threshold_layout.addWidget(threshold_label)
-
-        # Slider with value labels
-        slider_container = QWidget()
-        slider_layout = QVBoxLayout(slider_container)
-        slider_layout.setContentsMargins(0, 0, 0, 0)
-        slider_layout.setSpacing(5)
-
-        initial_threshold = 85
-        if self._settings:
-            initial_threshold = self._settings.detection.confidence_threshold
-
-        self.confidence_slider = QSlider(Qt.Orientation.Horizontal)
-        self.confidence_slider.setMinimum(50)
-        self.confidence_slider.setMaximum(99)
-        self.confidence_slider.setValue(initial_threshold)
-        self.confidence_slider.setStyleSheet(f"""
-            QSlider::groove:horizontal {{
-                border: none; height: 6px;
-                background: {DarkTheme.BG_INPUT}; border-radius: 3px;
-            }}
-            QSlider::handle:horizontal {{
-                background: {DarkTheme.PRIMARY}; border: 2px solid white;
-                width: 16px; height: 16px; margin: -6px 0; border-radius: 9px;
-            }}
-            QSlider::sub-page:horizontal {{
-                background: {DarkTheme.PRIMARY}; border-radius: 3px;
-            }}
-        """)
-        slider_layout.addWidget(self.confidence_slider)
-
-        # Value labels row
-        labels_layout = QHBoxLayout()
-        labels_layout.setContentsMargins(0, 0, 0, 0)
-
-        min_label = QLabel("50%")
-        min_label.setStyleSheet(f"font-size: 11px; color: {DarkTheme.TEXT_DISABLED};")
-        labels_layout.addWidget(min_label)
-
-        self.threshold_value_label = QLabel(f"{initial_threshold}%")
-        self.threshold_value_label.setStyleSheet(f"font-size: 11px; color: {DarkTheme.TEXT_SECONDARY};")
-        self.threshold_value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        labels_layout.addWidget(self.threshold_value_label)
-
-        max_label = QLabel("99%")
-        max_label.setStyleSheet(f"font-size: 11px; color: {DarkTheme.TEXT_DISABLED};")
-        max_label.setAlignment(Qt.AlignmentFlag.AlignRight)
-        labels_layout.addWidget(max_label)
-
-        slider_layout.addLayout(labels_layout)
-        self.confidence_slider.valueChanged.connect(
-            lambda v: self.threshold_value_label.setText(f"{v}%")
+        """Populate camera device dropdown by enumerating devices for the selected type."""
+        internal_type = self.CAMERA_TYPE_MAP.get(
+            self.camera_type_combo.currentText(), "usb-standard"
         )
 
-        threshold_layout.addWidget(slider_container)
-        card_layout.addWidget(threshold_container)
+        devices = []
+        if self._camera is not None:
+            try:
+                devices = self._camera.get_cameras_list(internal_type)
+            except Exception as exc:
+                print(f"[SettingsPage] Enumeration error: {exc}")
 
-        # Detection Frequency
-        frequency_container = QWidget()
-        frequency_layout = QVBoxLayout(frequency_container)
-        frequency_layout.setContentsMargins(0, 0, 0, 0)
-        frequency_layout.setSpacing(8)
+        self.camera_device_combo.blockSignals(True)
+        self.camera_device_combo.clear()
 
-        frequency_label = QLabel("Detection Frequency")
-        frequency_label.setStyleSheet(f"font-size: 12px; color: {DarkTheme.TEXT_SECONDARY};")
-        frequency_layout.addWidget(frequency_label)
+        if devices:
+            for dev in devices:
+                self.camera_device_combo.addItem(
+                    dev.get("name", f"Device {dev['index']}"),
+                    userData=dev["index"],
+                )
+            self.status_label.hide()
 
-        self.frequency_combo = QComboBox()
-        self.frequency_combo.addItems([
-            "Every 0.5 seconds", "Every 1 second", "Every 1.5 seconds",
-            "Every 2 seconds", "Every 3 seconds", "Continuous",
-        ])
-        initial_freq = "Every 1.5 seconds"
-        if self._settings:
-            initial_freq = self._settings.detection.detection_frequency
-        self.frequency_combo.setCurrentText(initial_freq)
-        self.frequency_combo.setStyleSheet(StyleSheets.get_combobox_style())
-        self.frequency_combo.setFixedHeight(45)
-        frequency_layout.addWidget(self.frequency_combo)
+            # Re-select the previously saved index if it exists
+            if self._settings:
+                saved_idx = self._settings.camera.camera_index
+                for i in range(self.camera_device_combo.count()):
+                    if self.camera_device_combo.itemData(i) == saved_idx:
+                        self.camera_device_combo.setCurrentIndex(i)
+                        break
+        else:
+            self.camera_device_combo.addItem("No devices found")
+            self.status_label.setText(
+                "No cameras detected for this type. Check connections and drivers."
+            )
+            self.status_label.show()
 
-        card_layout.addWidget(frequency_container)
-
-        layout.addWidget(card)
-        return container
+        self.camera_device_combo.blockSignals(False)
 
     def _on_close_clicked(self):
         """Handle close button click."""
         self.close_requested.emit()
-        # Close parent dialog if available
         if self.parent() and hasattr(self.parent(), 'close'):
             self.parent().close()
 
     def _on_done_clicked(self):
-        """Handle done button click."""
-        # Save settings if needed
+        """Handle done button click — save and close."""
         self._save_settings()
         self._on_close_clicked()
 
@@ -343,30 +280,24 @@ class SettingsPage(QWidget):
         if not self._settings:
             return
 
-        self._settings.detection.confidence_threshold = self.confidence_slider.value()
-        self._settings.detection.detection_frequency = self.frequency_combo.currentText()
+        changed = False
 
-        new_index = self.camera_device_combo.currentIndex()
+        # Camera type
+        new_type = self.CAMERA_TYPE_MAP.get(
+            self.camera_type_combo.currentText(), "usb-standard"
+        )
+        if new_type != self._settings.camera.camera_type:
+            self._settings.camera.camera_type = new_type
+            changed = True
+
+        # Camera device index (stored as userData on the combo item)
+        device_data = self.camera_device_combo.currentData()
+        new_index = device_data if device_data is not None else 0
         if new_index != self._settings.camera.camera_index:
             self._settings.camera.camera_index = new_index
-            if self._parent_window and hasattr(self._parent_window, "refresh_camera"):
-                self._parent_window.refresh_camera()
+            changed = True
 
         self._settings.save()
 
-    def get_settings(self) -> dict:
-        """Get all current settings."""
-        return {
-            "camera_device": self.camera_device_combo.currentIndex(),
-            "confidence_threshold": self.confidence_slider.value(),
-            "detection_frequency": self.frequency_combo.currentText(),
-        }
-
-    def load_settings(self, settings: dict):
-        """Load settings from a dictionary."""
-        if "camera_device" in settings:
-            self.camera_device_combo.setCurrentIndex(settings["camera_device"])
-        if "confidence_threshold" in settings:
-            self.confidence_slider.setValue(int(settings["confidence_threshold"]))
-        if "detection_frequency" in settings:
-            self.frequency_combo.setCurrentText(settings["detection_frequency"])
+        if changed and self._parent_window and hasattr(self._parent_window, "refresh_camera"):
+            self._parent_window.refresh_camera()

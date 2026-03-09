@@ -1,5 +1,6 @@
 import cv2
 from camera.intel_realsense import IntelRealSenseD435i
+from camera.daheng import DahengCamera
 
 class Camera:
     _GUID_DEVINTERFACE_IMAGE = "{e5323777-f976-4f5b-9b55-b94699c46e44}"
@@ -12,26 +13,65 @@ class Camera:
         sanitized = device_id.replace("\\", "#")
         return f"@device_pnp_\\\\?\\{sanitized}#{Camera._GUID_DEVINTERFACE_IMAGE}"
 
-    def get_cameras_list(self):
-        """Get a list of connected camera devices."""
-        import win32com.client
+    def get_cameras_list(self, camera_type: str = "usb-standard"):
+        """Get a list of connected camera devices for the given type.
 
-        locator = win32com.client.Dispatch("WbemScripting.SWbemLocator")
-        service = locator.ConnectServer(".", "root\\CIMV2")
-        devices = service.ExecQuery(
-            "SELECT Name, DeviceID FROM Win32_PnPEntity WHERE Service='usbvideo'"
-        )
+        Returns a list of dicts with at least ``index`` and ``name`` keys.
+        """
+        if camera_type == "daheng-gige":
+            return self._enumerate_daheng()
+        elif camera_type == "intel-realsense":
+            return self._enumerate_realsense()
+        else:
+            return self._enumerate_usb()
 
-        cameras = []
-        for idx, device in enumerate(devices):
-            cameras.append(
-                {
-                    "index": idx,
-                    "name": device.Name,
-                    "device_path": self._build_device_path(device.DeviceID),
-                }
+    # ---- per-type enumeration helpers --------------------------------------
+
+    @staticmethod
+    def _enumerate_usb() -> list[dict]:
+        """Enumerate USB webcam devices via WMI."""
+        try:
+            import win32com.client
+            locator = win32com.client.Dispatch("WbemScripting.SWbemLocator")
+            service = locator.ConnectServer(".", "root\\CIMV2")
+            devices = service.ExecQuery(
+                "SELECT Name, DeviceID FROM Win32_PnPEntity WHERE Service='usbvideo'"
             )
+            cameras = []
+            for idx, device in enumerate(devices):
+                cameras.append({"index": idx, "name": device.Name})
+            return cameras
+        except Exception as exc:
+            print(f"[Camera] USB enumeration error: {exc}")
+            return []
+
+    @staticmethod
+    def _enumerate_daheng() -> list[dict]:
+        """Enumerate Daheng Imaging GigE / USB3 Vision devices."""
+        devices = DahengCamera.enumerate_devices()
+        cameras = []
+        for dev in devices:
+            label = f"{dev.get('model', 'Daheng')} (SN: {dev.get('serial', '?')})"
+            if dev.get("ip"):
+                label += f" [{dev['ip']}]"
+            cameras.append({"index": dev["index"] - 1, "name": label})
         return cameras
+
+    @staticmethod
+    def _enumerate_realsense() -> list[dict]:
+        """Enumerate Intel RealSense devices."""
+        try:
+            import pyrealsense2 as rs
+            ctx = rs.context()
+            cameras = []
+            for idx, dev in enumerate(ctx.query_devices()):
+                name = dev.get_info(rs.camera_info.name)
+                serial = dev.get_info(rs.camera_info.serial_number)
+                cameras.append({"index": idx, "name": f"{name} (SN: {serial})"})
+            return cameras
+        except Exception as exc:
+            print(f"[Camera] RealSense enumeration error: {exc}")
+            return []
 
     def load_cap(self, index: int, camera_type: str = "usb-standard"):
         """Load a video capture object for the given camera index."""
@@ -45,6 +85,11 @@ class Camera:
             if not cap.start():
                 raise RuntimeError("Failed to start Intel RealSense camera.")
             return cap
+        elif camera_type == "daheng-gige":
+            cap = DahengCamera(device_index=index + 1)  # gxipy uses 1-based
+            if not cap.start():
+                raise RuntimeError("Failed to start Daheng camera.")
+            return cap
         else:
             raise ValueError(f"Unknown camera type: {camera_type}")
 
@@ -53,6 +98,12 @@ class Camera:
         if isinstance(cap, cv2.VideoCapture):
             return cap.read()
         elif isinstance(cap, IntelRealSenseD435i):
+            frame = cap.get_bgr_frame()
+            if frame is not None:
+                return True, frame
+            else:
+                return False, None
+        elif isinstance(cap, DahengCamera):
             frame = cap.get_bgr_frame()
             if frame is not None:
                 return True, frame
@@ -70,6 +121,8 @@ class Camera:
                     cap.release()
                 print("Released USB camera")
             elif isinstance(cap, IntelRealSenseD435i):
+                cap.stop()
+            elif isinstance(cap, DahengCamera):
                 cap.stop()
             else:
                 print(f"Unknown capture object type for release: {type(cap)}")
@@ -105,6 +158,10 @@ class Camera:
                 if success:
                     print(f"RealSense autofocus {'enabled' if enabled else 'disabled'}")
                 return success
+            elif isinstance(cap, DahengCamera):
+                # Daheng industrial cameras typically don't support autofocus
+                print("Daheng camera does not support autofocus")
+                return False
             else:
                 print(f"Unknown capture object type: {type(cap)}")
                 return False
@@ -143,6 +200,10 @@ class Camera:
                 if success:
                     print(f"RealSense manual focus set to: {focus_value}")
                 return success
+            elif isinstance(cap, DahengCamera):
+                # Daheng industrial cameras typically use fixed-focus lenses
+                print("Daheng camera does not support software focus control")
+                return False
             else:
                 print(f"Unknown capture object type: {type(cap)}")
                 return False
@@ -153,21 +214,21 @@ class Camera:
 
 if __name__ == "__main__":
     camera = Camera()
-    cameras = camera.get_cameras_list()
-    for cam in cameras:
-        print(f"Index: {cam['index']}, Name: {cam['name']}, Device Path: {cam['device_path']}")
 
-    # Example to load standard USB camera
-    # cap = camera.load_cap(0, camera_type="usb-standard")
+    # Enumerate cameras for each type
+    for cam_type in ("usb-standard", "intel-realsense", "daheng-gige"):
+        print(f"\n--- {cam_type} ---")
+        cameras = camera.get_cameras_list(cam_type)
+        for cam in cameras:
+            print(f"  Index: {cam['index']}, Name: {cam['name']}")
 
-    # Example to load Intel RealSense camera
-    cap = camera.load_cap(0, camera_type="intel-realsense")
-
-    while True:
-        ret, frame = camera.read_frame(cap)
-        if not ret:
-            break
-        cv2.imshow("Camera Feed", frame)
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
-    camera.release_cap(cap)
+    # Example: open a Daheng GigE camera
+    # cap = camera.load_cap(0, camera_type="daheng-gige")
+    # while True:
+    #     ret, frame = camera.read_frame(cap)
+    #     if not ret:
+    #         break
+    #     cv2.imshow("Camera Feed", frame)
+    #     if cv2.waitKey(1) & 0xFF == ord('q'):
+    #         break
+    # camera.release_cap(cap)

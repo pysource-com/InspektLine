@@ -17,7 +17,7 @@ _DEFAULT_SETTINGS_PATH = Path("storage/settings.json")
 class CameraSettings:
     """Camera-related settings."""
     camera_index: int = 0
-    camera_type: str = "usb-standard"  # "usb-standard" | "intel-realsense"
+    camera_type: str = "usb-standard"  # "usb-standard" | "intel-realsense" | "daheng-gige"
     resolution: str = "1920 x 1080 (Full HD)"
     frame_rate: str = "30 FPS"
     auto_focus_enabled: bool = False

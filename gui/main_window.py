@@ -156,8 +156,8 @@ class MainWindow(QMainWindow):
         dialog, page = self._open_dialog(
             "settings", "InspektLine - Settings", SettingsPage,
         )
-        dialog.setMinimumSize(600, 700)
-        dialog.resize(650, 750)
+        dialog.setMinimumSize(500, 400)
+        dialog.resize(550, 450)
         dialog.show()
 
     def open_camera_window(self):

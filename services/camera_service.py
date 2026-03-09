@@ -162,10 +162,19 @@ class CameraService:
             return self._camera.set_manual_focus(self._cap, value)
         return False
 
-    def get_cameras_list(self) -> list:
-        """Enumerate available cameras (delegates to Camera)."""
+    def get_cameras_list(self, camera_type: str = None) -> list:
+        """Enumerate available cameras (delegates to Camera).
+
+        Parameters
+        ----------
+        camera_type : str, optional
+            ``"usb-standard"``, ``"intel-realsense"``, or ``"daheng-gige"``.
+            Defaults to the type stored in settings.
+        """
+        if camera_type is None:
+            camera_type = self._settings.camera.camera_type
         try:
-            return self._camera.get_cameras_list()
+            return self._camera.get_cameras_list(camera_type)
         except Exception as exc:
             print(f"[CameraService] Could not enumerate cameras: {exc}")
             return []
