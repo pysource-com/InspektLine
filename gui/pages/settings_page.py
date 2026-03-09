@@ -16,8 +16,7 @@ class SettingsPage(QWidget):
     close_requested = Signal()
 
     def __init__(self, settings_service=None, camera_service=None,
-                 dataset_service=None, inspection_service=None,
-                 db=None, parent=None):
+                 inspection_service=None, parent=None, **kwargs):
         super().__init__(parent)
         self._settings = settings_service
         self._camera = camera_service
@@ -194,27 +193,25 @@ class SettingsPage(QWidget):
         # Card
         card = self._create_card()
         card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(20, 30, 20, 30)
+        card_layout.setContentsMargins(20, 20, 20, 20)
         card_layout.setSpacing(8)
-        card_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # Brain icon placeholder
-        icon_label = QLabel("🧠")
-        icon_label.setStyleSheet("font-size: 36px;")
-        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        card_layout.addWidget(icon_label)
+        # Model path label
+        model_path_label = QLabel("Model Path")
+        model_path_label.setStyleSheet(f"font-size: 12px; color: {DarkTheme.TEXT_SECONDARY};")
+        card_layout.addWidget(model_path_label)
 
-        # No models text
-        no_model_label = QLabel("No models trained yet")
-        no_model_label.setStyleSheet(f"font-size: 14px; color: {DarkTheme.TEXT_SECONDARY};")
-        no_model_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        card_layout.addWidget(no_model_label)
+        # Current model display
+        current_model = ""
+        if self._settings:
+            current_model = self._settings.detection.active_model_path
 
-        # Hint text
-        hint_label = QLabel("Train your first model in Dataset & Training")
-        hint_label.setStyleSheet(f"font-size: 12px; color: {DarkTheme.TEXT_DISABLED};")
-        hint_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        card_layout.addWidget(hint_label)
+        self.model_path_display = QLabel(current_model or "No model loaded")
+        self.model_path_display.setStyleSheet(
+            f"font-size: 13px; color: {DarkTheme.TEXT_PRIMARY if current_model else DarkTheme.TEXT_DISABLED};"
+        )
+        self.model_path_display.setWordWrap(True)
+        card_layout.addWidget(self.model_path_display)
 
         layout.addWidget(card)
         return container

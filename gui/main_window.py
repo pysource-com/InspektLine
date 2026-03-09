@@ -4,13 +4,10 @@ from PySide6.QtWidgets import QMainWindow, QVBoxLayout, QDialog
 from PySide6.QtCore import QTimer, Qt, Signal
 from PySide6.QtGui import QIcon
 
-from database.project_db import ProjectDatabase
 from services.settings_service import SettingsService
 from services.camera_service import CameraService
-from services.dataset_service import DatasetService
 from services.inspection_service import InspectionService
-from gui.pages import (CameraPage, DatasetPage, SettingsPage, HomePage,
-                       AnnotatorPage, TrainingPage)
+from gui.pages import CameraPage, SettingsPage, HomePage
 from gui.styles import DarkTheme
 
 
@@ -45,18 +42,14 @@ class MainWindow(QMainWindow):
         self,
         settings_service: SettingsService,
         camera_service: CameraService,
-        dataset_service: DatasetService,
         inspection_service: InspectionService,
-        db: ProjectDatabase,
     ):
         super().__init__()
 
         # --- injected services ---
         self.settings_service = settings_service
         self.camera_service = camera_service
-        self.dataset_service = dataset_service
         self.inspection_service = inspection_service
-        self.db = db
 
         # --- UI state ---
         self._timer: QTimer | None = None
@@ -65,17 +58,11 @@ class MainWindow(QMainWindow):
         # Dialog references (keep alive while open)
         self._dialogs: dict[str, PageDialog | None] = {
             "settings": None,
-            "dataset": None,
             "camera": None,
-            "annotator": None,
-            "training": None,
         }
         # Page widget references
         self._pages: dict[str, object | None] = {
             "camera": None,
-            "dataset": None,
-            "annotator": None,
-            "training": None,
             "settings": None,
         }
 
@@ -94,15 +81,12 @@ class MainWindow(QMainWindow):
 
         # Home page is the central widget
         self.home_page = HomePage(parent=self)
-        self.home_page.navigate_to_capture.connect(self.open_dataset_window)
-        self.home_page.navigate_to_annotate.connect(self.open_annotator_window)
-        self.home_page.navigate_to_train.connect(self.open_training_window)
         self.home_page.navigate_to_settings.connect(self.open_settings_window)
-        self.home_page.navigate_to_dataset.connect(self.open_dataset_window)
+        self.home_page.navigate_to_camera.connect(self.open_camera_window)
         self.setCentralWidget(self.home_page)
 
     # ================================================================
-    # Frame timer  (replaces the old start_video / update_frame)
+    # Frame timer
     # ================================================================
 
     def _start_frame_timer(self):
@@ -134,22 +118,11 @@ class MainWindow(QMainWindow):
                 h, w = frame.shape[:2]
                 cam_page.resolution_value.setText(f"{w}×{h}")
 
-        # Push frame to open dataset page
-        ds_dialog = self._dialogs.get("dataset")
-        ds_page = self._pages.get("dataset")
-        if ds_dialog and ds_dialog.isVisible() and ds_page:
-            if hasattr(ds_page, "dataset_video_label") and ds_page.dataset_video_label:
-                ds_page.dataset_video_label.display_frame(frame)
-            if hasattr(ds_page, "ok_button") and ds_page.ok_button:
-                ds_page.ok_button.setEnabled(True)
-            if hasattr(ds_page, "not_ok_button") and ds_page.not_ok_button:
-                ds_page.not_ok_button.setEnabled(True)
-
         # Emit for any other listeners
         self.frame_ready.emit(frame)
 
     # ================================================================
-    # Window-opening helpers (one per page type)
+    # Window-opening helpers
     # ================================================================
 
     def _open_dialog(self, key: str, title: str, page_factory, **kwargs):
@@ -159,9 +132,7 @@ class MainWindow(QMainWindow):
             page = page_factory(
                 settings_service=self.settings_service,
                 camera_service=self.camera_service,
-                dataset_service=self.dataset_service,
                 inspection_service=self.inspection_service,
-                db=self.db,
                 parent=self,
                 **kwargs,
             )
@@ -182,37 +153,14 @@ class MainWindow(QMainWindow):
         dialog.resize(650, 750)
         dialog.show()
 
-    def open_dataset_window(self):
-        dialog, page = self._open_dialog(
-            "dataset", "InspektLine - Dataset & Training", DatasetPage,
-        )
-        # Load existing samples on first open
-        if not self.dataset_service.is_loaded:
-            self.dataset_service.load_existing()
-            if hasattr(page, "_load_existing_samples"):
-                page._load_existing_samples()
-        dialog.show()
-
     def open_camera_window(self):
         dialog, page = self._open_dialog(
             "camera", "InspektLine - Camera Feed", CameraPage,
         )
         dialog.show()
 
-    def open_annotator_window(self):
-        dialog, page = self._open_dialog(
-            "annotator", "InspektLine - Annotator", AnnotatorPage,
-        )
-        dialog.show()
-
-    def open_training_window(self):
-        dialog, page = self._open_dialog(
-            "training", "InspektLine - Training", TrainingPage,
-        )
-        dialog.show()
-
     # ================================================================
-    # Convenience accessors (used by pages during transition)
+    # Convenience accessors
     # ================================================================
 
     def get_current_frame(self):
@@ -237,20 +185,6 @@ class MainWindow(QMainWindow):
         else:
             self._start_frame_timer()
 
-    def capture_sample(self, label_type: str):
-        """Capture current frame as a dataset sample (delegates to DatasetService)."""
-        frame = self.camera_service.current_frame
-        if frame is None:
-            return
-        save_path = self.dataset_service.capture(label_type, frame)
-
-        # Update open dataset page if visible
-        ds_page = self._pages.get("dataset")
-        if ds_page and hasattr(ds_page, "_update_collect_stats"):
-            ds_page._update_collect_stats()
-        if ds_page and hasattr(ds_page, "_add_to_gallery"):
-            ds_page._add_to_gallery(save_path, label_type)
-
     # ================================================================
     # Events
     # ================================================================
@@ -265,12 +199,3 @@ class MainWindow(QMainWindow):
 
         self.settings_service.save()
         event.accept()
-
-    def keyPressEvent(self, event):
-        ds_dialog = self._dialogs.get("dataset")
-        if ds_dialog and ds_dialog.isVisible():
-            if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Right):
-                self.capture_sample("OK")
-            elif event.key() in (Qt.Key.Key_Backspace, Qt.Key.Key_Left):
-                self.capture_sample("NOT_OK")
-        super().keyPressEvent(event)

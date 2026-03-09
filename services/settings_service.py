@@ -34,19 +34,10 @@ class DetectionSettings:
 
 
 @dataclass
-class StorageSettings:
-    """Storage paths."""
-    database_path: str = "storage/inspektline.db"
-    dataset_ok_path: str = "storage/dataset/ok"
-    dataset_notok_path: str = "storage/dataset/not_ok"
-
-
-@dataclass
 class AppSettings:
     """Root settings container."""
     camera: CameraSettings = field(default_factory=CameraSettings)
     detection: DetectionSettings = field(default_factory=DetectionSettings)
-    storage: StorageSettings = field(default_factory=StorageSettings)
 
 
 class SettingsService:
@@ -82,10 +73,6 @@ class SettingsService:
                 for k, v in data["detection"].items():
                     if hasattr(self.settings.detection, k):
                         setattr(self.settings.detection, k, v)
-            if "storage" in data:
-                for k, v in data["storage"].items():
-                    if hasattr(self.settings.storage, k):
-                        setattr(self.settings.storage, k, v)
         except (json.JSONDecodeError, OSError) as exc:
             print(f"[SettingsService] Could not load settings: {exc}")
 
@@ -104,8 +91,3 @@ class SettingsService:
     @property
     def detection(self) -> DetectionSettings:
         return self.settings.detection
-
-    @property
-    def storage_cfg(self) -> StorageSettings:
-        return self.settings.storage
-

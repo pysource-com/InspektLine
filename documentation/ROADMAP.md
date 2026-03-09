@@ -1,15 +1,12 @@
 # Roadmap
 
 ## Vision
-Building a software that can identify defects on a productin line.
-The focus is making the software very easy and intuitive to use for the final client, and making it easy for development to maintain.
-It should be modular, real-time and it should adapt easily to different industril companies and industrial components to identify.
 
-## Current focus
-Collecting the material and data to start building the software.
+A minimal, real-time visual inspection system that detects defects on a production line.
+Focused on simplicity: load a model, point a camera, start inspecting.
 
-## Phase 1
-### 1. Data collection
-- [x] Looking for video and image datasets (samples from manufacturing companies).
-- [ ] Finding and buying ideal products to use
-- [ ] Create own video samples and datasets
+## Current Focus
+
+- Real-time inference with live camera feed
+- Simple model loading (bring your own trained transformer model)
+- Minimal settings: camera device, confidence threshold, detection frequency

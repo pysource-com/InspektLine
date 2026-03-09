@@ -14,8 +14,7 @@ class CameraPage(QWidget):
     """
 
     def __init__(self, settings_service=None, camera_service=None,
-                 dataset_service=None, inspection_service=None,
-                 db=None, parent=None):
+                 inspection_service=None, parent=None, **kwargs):
         super().__init__(parent)
         self._settings = settings_service
         self._camera = camera_service

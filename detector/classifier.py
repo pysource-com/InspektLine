@@ -94,33 +94,26 @@ class TransformerImageClassifier:
 
 # Example usage:
 if __name__ == "__main__":
-    from datasets import load_dataset
     import cv2
-    import numpy as np
     import os
+    import sys
 
-    # load image from samples/splitted_dataset/test/Red/00001.jpg
-    image_path = "../samples/splitted_dataset/test/ok_front/cast_ok_0_909_jpeg.rf.5717b796847655a58b41122a84441840.jpg"
+    if len(sys.argv) < 3:
+        print("Usage: python classifier.py <model_path> <image_path>")
+        sys.exit(1)
+
+    model_path = sys.argv[1]
+    image_path = sys.argv[2]
+
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(f"Model not found: {model_path}")
+    if not os.path.exists(image_path):
+        raise FileNotFoundError(f"Image not found: {image_path}")
+
     image_bgr = cv2.imread(image_path)
-    image = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+    image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
 
-
-    # display image using cv2
-    cv2.imshow("Input Image", image_bgr)
-
-
-    # load safetensor model from trainer/outputs
-    model = r"../trainer/outputs/epoch-3"
-    # check if model file exists
-
-    if not os.path.exists(model):
-        raise FileNotFoundError(f"Model file not found: {model}")
-    classifier = TransformerImageClassifier(
-        model_name=model,
-        device="cuda",
-    )
-    results = classifier.predict([image], top_k=1, return_probabilities=True)
+    classifier = TransformerImageClassifier(model_name=model_path)
+    results = classifier.predict([image_rgb], top_k=1, return_probabilities=True)
     for res in results[0]:
         print(f"Label: {res['label']}, Score: {res['score']:.4f}, ID: {res['id']}")
-
-    cv2.waitKey(0)

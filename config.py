@@ -14,5 +14,3 @@ CAMERA_TYPE = "usb-standard"
 
 # Storage defaults
 STORAGE_DIR = "storage"
-DATABASE_NAME = "inspektline.db"
-DATASET_DIR = "storage/dataset"
