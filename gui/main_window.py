@@ -108,7 +108,14 @@ class MainWindow(QMainWindow):
 
         self._frame_count += 1
 
-        # Push frame to open camera page
+        # Push frame to home page video label (always visible)
+        if hasattr(self.home_page, "video_label") and self.home_page.video_label:
+            self.home_page.video_label.display_frame(frame)
+            if self._frame_count == 1 and hasattr(self.home_page, "resolution_value"):
+                h, w = frame.shape[:2]
+                self.home_page.resolution_value.setText(f"{w}×{h}")
+
+        # Push frame to open camera page dialog (if open)
         cam_dialog = self._dialogs.get("camera")
         cam_page = self._pages.get("camera")
         if cam_dialog and cam_dialog.isVisible() and cam_page:

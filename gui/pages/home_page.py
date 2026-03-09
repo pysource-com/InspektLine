@@ -1,17 +1,17 @@
-"""Home page — focused on real-time defect inspection."""
+"""Home page — camera feed with inspection controls always visible."""
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QFrame, QFileDialog,
+    QFrame, QFileDialog, QSizePolicy,
 )
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QFont
 
+from gui.components import VideoLabel
 from gui.styles.themes import DarkTheme
 
 
 class HomePage(QWidget):
-    """Home page for the real-time inspection workflow."""
+    """Home page showing real-time camera feed with inspection controls."""
 
     # Signals for navigation
     navigate_to_settings = Signal()
@@ -22,10 +22,13 @@ class HomePage(QWidget):
         self.parent_window = parent
 
         # UI element references
+        self.video_label = None
         self.model_status = None
         self.model_path_label = None
         self.start_inspection_btn = None
         self.load_model_btn = None
+        self.resolution_value = None
+        self.inspection_label = None
 
         self.init_ui()
 
@@ -45,16 +48,16 @@ class HomePage(QWidget):
         header = self._create_header()
         content_layout.addWidget(header)
 
-        # Main content area
-        main_content = self._create_main_content()
-        content_layout.addWidget(main_content, stretch=1)
+        # Main content: camera feed + side panel
+        body = self._create_body()
+        content_layout.addWidget(body, stretch=1)
 
         main_layout.addWidget(content_widget)
 
     def _create_header(self) -> QWidget:
         """Create the header bar."""
         header = QWidget()
-        header.setFixedHeight(70)
+        header.setFixedHeight(60)
         header.setStyleSheet(f"""
             QWidget {{
                 background-color: {DarkTheme.BG_SECONDARY};
@@ -70,7 +73,7 @@ class HomePage(QWidget):
         title_layout.setSpacing(2)
         title_layout.setContentsMargins(0, 0, 0, 0)
 
-        title = QLabel("Visual Inspection System")
+        title = QLabel("InspektLine")
         title.setStyleSheet(
             f"color: {DarkTheme.TEXT_PRIMARY}; font-size: 18px; "
             f"font-weight: bold; border: none; background: transparent;"
@@ -86,27 +89,18 @@ class HomePage(QWidget):
         layout.addLayout(title_layout)
         layout.addStretch()
 
-        # Camera button
-        camera_btn = QPushButton("📹  Camera Feed")
-        camera_btn.setFixedHeight(36)
-        camera_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        camera_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {DarkTheme.BG_INPUT};
-                color: {DarkTheme.TEXT_PRIMARY};
-                border: none;
-                border-radius: 6px;
-                padding: 0 16px;
-                font-size: 13px;
-            }}
-            QPushButton:hover {{
-                background-color: {DarkTheme.BG_HOVER};
-            }}
+        # Live badge
+        live_badge = QLabel("● LIVE")
+        live_badge.setStyleSheet(f"""
+            color: {DarkTheme.SUCCESS};
+            font-size: 13px;
+            font-weight: bold;
+            border: none;
+            background: transparent;
         """)
-        camera_btn.clicked.connect(self.navigate_to_camera.emit)
-        layout.addWidget(camera_btn)
+        layout.addWidget(live_badge)
 
-        layout.addSpacing(8)
+        layout.addSpacing(16)
 
         # Settings button
         settings_btn = QPushButton("⚙  Settings")
@@ -130,64 +124,113 @@ class HomePage(QWidget):
 
         return header
 
-    def _create_main_content(self) -> QWidget:
-        """Create the main content area."""
-        content = QWidget()
-        layout = QVBoxLayout(content)
-        layout.setContentsMargins(60, 60, 60, 60)
-        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    def _create_body(self) -> QWidget:
+        """Create the body: camera feed on the left, controls on the right."""
+        body = QWidget()
+        layout = QHBoxLayout(body)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(12)
 
-        # Camera icon
-        icon_container = QWidget()
-        icon_container.setFixedSize(100, 100)
-        icon_container.setStyleSheet(f"""
-            background-color: {DarkTheme.BG_INPUT};
-            border-radius: 50px;
+        # --- Camera feed area (takes most space) ---
+        camera_container = self._create_camera_area()
+        layout.addWidget(camera_container, stretch=3)
+
+        # --- Right side panel with controls ---
+        side_panel = self._create_side_panel()
+        layout.addWidget(side_panel, stretch=1)
+
+        return body
+
+    def _create_camera_area(self) -> QWidget:
+        """Create the camera feed display area."""
+        container = QWidget()
+        container.setStyleSheet(f"""
+            QWidget {{
+                background-color: {DarkTheme.BG_SECONDARY};
+                border: 1px solid {DarkTheme.BORDER_PRIMARY};
+                border-radius: 8px;
+            }}
         """)
-        icon_layout = QVBoxLayout(icon_container)
-        icon_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(4)
 
-        camera_icon = QLabel("🔍")
-        camera_icon.setStyleSheet("font-size: 40px; background: transparent;")
-        camera_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        icon_layout.addWidget(camera_icon)
-
-        layout.addWidget(icon_container, alignment=Qt.AlignmentFlag.AlignCenter)
-        layout.addSpacing(24)
-
-        # Title
-        title = QLabel("Real-Time Defect Inspection")
-        title.setStyleSheet(
-            f"color: {DarkTheme.TEXT_PRIMARY}; font-size: 28px; font-weight: bold;"
+        # Video label for real-time feed
+        self.video_label = VideoLabel()
+        self.video_label.setMinimumSize(640, 360)
+        self.video_label.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(title)
+        layout.addWidget(self.video_label, stretch=1)
 
-        # Subtitle
-        subtitle = QLabel("Load a detection model and start inspecting products in real-time.")
-        subtitle.setStyleSheet(f"color: {DarkTheme.TEXT_SECONDARY}; font-size: 14px;")
-        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        subtitle.setWordWrap(True)
-        subtitle.setMaximumWidth(500)
-        layout.addWidget(subtitle, alignment=Qt.AlignmentFlag.AlignCenter)
+        # Info bar below video
+        info_bar = QWidget()
+        info_bar.setMaximumHeight(32)
+        info_bar.setStyleSheet(
+            "background-color: rgba(0, 0, 0, 180); border-radius: 4px;"
+        )
+        info_layout = QHBoxLayout(info_bar)
+        info_layout.setContentsMargins(12, 4, 12, 4)
+        info_layout.setSpacing(16)
 
-        layout.addSpacing(32)
+        status_dot = QLabel("●")
+        status_dot.setStyleSheet(f"color: {DarkTheme.SUCCESS}; font-size: 14px; border: none;")
+        info_layout.addWidget(status_dot)
+
+        status_text = QLabel("Connected")
+        status_text.setStyleSheet(
+            f"color: {DarkTheme.TEXT_PRIMARY}; font-size: 11px; font-weight: bold; border: none;"
+        )
+        info_layout.addWidget(status_text)
+
+        info_layout.addStretch()
+
+        res_label = QLabel("Resolution:")
+        res_label.setStyleSheet(f"color: {DarkTheme.TEXT_SECONDARY}; font-size: 11px; border: none;")
+        info_layout.addWidget(res_label)
+
+        self.resolution_value = QLabel("—")
+        self.resolution_value.setStyleSheet(
+            f"color: {DarkTheme.TEXT_PRIMARY}; font-size: 11px; font-weight: bold; border: none;"
+        )
+        info_layout.addWidget(self.resolution_value)
+
+        layout.addWidget(info_bar)
+
+        return container
+
+    def _create_side_panel(self) -> QWidget:
+        """Create the right-side control panel."""
+        panel = QWidget()
+        panel.setMinimumWidth(280)
+        panel.setMaximumWidth(360)
+        panel.setStyleSheet(f"""
+            QWidget {{
+                background-color: {DarkTheme.BG_SECONDARY};
+                border: 1px solid {DarkTheme.BORDER_PRIMARY};
+                border-radius: 8px;
+            }}
+        """)
+
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(16)
+
+        # --- Model section ---
+        model_section_title = QLabel("Detection Model")
+        model_section_title.setStyleSheet(
+            f"color: {DarkTheme.TEXT_PRIMARY}; font-size: 14px; "
+            f"font-weight: bold; border: none;"
+        )
+        layout.addWidget(model_section_title)
 
         # Model card
         model_card = self._create_model_card()
-        layout.addWidget(model_card, alignment=Qt.AlignmentFlag.AlignCenter)
-
-        layout.addSpacing(32)
-
-        # Action buttons
-        buttons_layout = QHBoxLayout()
-        buttons_layout.setSpacing(16)
-        buttons_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(model_card)
 
         # Load Model button
         self.load_model_btn = QPushButton("📂  Load Model")
-        self.load_model_btn.setFixedHeight(50)
-        self.load_model_btn.setMinimumWidth(180)
+        self.load_model_btn.setFixedHeight(44)
         self.load_model_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.load_model_btn.setStyleSheet(f"""
             QPushButton {{
@@ -195,8 +238,8 @@ class HomePage(QWidget):
                 color: white;
                 border: none;
                 border-radius: 8px;
-                padding: 0 24px;
-                font-size: 14px;
+                padding: 0 20px;
+                font-size: 13px;
                 font-weight: bold;
             }}
             QPushButton:hover {{
@@ -207,12 +250,33 @@ class HomePage(QWidget):
             }}
         """)
         self.load_model_btn.clicked.connect(self._load_model)
-        buttons_layout.addWidget(self.load_model_btn)
+        layout.addWidget(self.load_model_btn)
+
+        # Separator
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet(f"color: {DarkTheme.BORDER_PRIMARY}; border: none; background: {DarkTheme.BORDER_PRIMARY}; max-height: 1px;")
+        layout.addWidget(sep)
+
+        # --- Inspection section ---
+        inspection_title = QLabel("Inspection")
+        inspection_title.setStyleSheet(
+            f"color: {DarkTheme.TEXT_PRIMARY}; font-size: 14px; "
+            f"font-weight: bold; border: none;"
+        )
+        layout.addWidget(inspection_title)
+
+        # Inspection status label
+        self.inspection_label = QLabel("Load a model to begin inspection")
+        self.inspection_label.setStyleSheet(
+            f"color: {DarkTheme.TEXT_SECONDARY}; font-size: 12px; border: none;"
+        )
+        self.inspection_label.setWordWrap(True)
+        layout.addWidget(self.inspection_label)
 
         # Start Inspection button
         self.start_inspection_btn = QPushButton("▶  Start Inspection")
         self.start_inspection_btn.setFixedHeight(50)
-        self.start_inspection_btn.setMinimumWidth(200)
         self.start_inspection_btn.setEnabled(False)
         self.start_inspection_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.start_inspection_btn.setStyleSheet(f"""
@@ -228,51 +292,68 @@ class HomePage(QWidget):
                 background-color: {DarkTheme.SUCCESS};
                 color: white;
                 border: none;
+                font-weight: bold;
             }}
             QPushButton:enabled:hover {{
                 background-color: {DarkTheme.SUCCESS_HOVER};
             }}
         """)
         self.start_inspection_btn.clicked.connect(self._toggle_inspection)
-        buttons_layout.addWidget(self.start_inspection_btn)
-
-        layout.addLayout(buttons_layout)
+        layout.addWidget(self.start_inspection_btn)
 
         layout.addStretch()
 
-        return content
+        # --- Bottom: camera pop-out button ---
+        camera_btn = QPushButton("📹  Open Camera Window")
+        camera_btn.setFixedHeight(36)
+        camera_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        camera_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {DarkTheme.BG_INPUT};
+                color: {DarkTheme.TEXT_SECONDARY};
+                border: none;
+                border-radius: 6px;
+                padding: 0 16px;
+                font-size: 12px;
+            }}
+            QPushButton:hover {{
+                background-color: {DarkTheme.BG_HOVER};
+                color: {DarkTheme.TEXT_PRIMARY};
+            }}
+        """)
+        camera_btn.clicked.connect(self.navigate_to_camera.emit)
+        layout.addWidget(camera_btn)
+
+        return panel
 
     def _create_model_card(self) -> QFrame:
         """Create a card showing current model status."""
         card = QFrame()
-        card.setFixedWidth(450)
         card.setStyleSheet(f"""
             QFrame {{
-                background-color: {DarkTheme.BG_SECONDARY};
+                background-color: {DarkTheme.BG_CARD};
                 border: 1px solid {DarkTheme.BORDER_PRIMARY};
-                border-radius: 10px;
-                padding: 20px;
+                border-radius: 8px;
+                padding: 12px;
             }}
         """)
 
-        card_layout = QVBoxLayout(card)
-        card_layout.setSpacing(8)
-        card_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        card_layout = QHBoxLayout(card)
+        card_layout.setSpacing(10)
+        card_layout.setContentsMargins(12, 10, 12, 10)
 
         # Brain icon
         icon_label = QLabel("🧠")
-        icon_label.setStyleSheet("font-size: 36px; border: none;")
-        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        icon_label.setStyleSheet("font-size: 24px; border: none;")
         card_layout.addWidget(icon_label)
 
         # Model path label
         self.model_path_label = QLabel("No model loaded")
         self.model_path_label.setStyleSheet(
-            f"font-size: 14px; color: {DarkTheme.TEXT_SECONDARY}; border: none;"
+            f"font-size: 12px; color: {DarkTheme.TEXT_SECONDARY}; border: none;"
         )
-        self.model_path_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.model_path_label.setWordWrap(True)
-        card_layout.addWidget(self.model_path_label)
+        card_layout.addWidget(self.model_path_label, stretch=1)
 
         return card
 
@@ -291,16 +372,21 @@ class HomePage(QWidget):
         if self.parent_window and hasattr(self.parent_window, "inspection_service"):
             success = self.parent_window.inspection_service.load_model(model_path)
             if success:
+                short_name = model_path.replace("\\", "/").split("/")[-1]
                 self.model_path_label.setText(model_path)
-                self.model_status.setText(f"Model: {model_path.split('/')[-1]}")
+                self.model_status.setText(f"Model: {short_name}")
                 self.model_status.setStyleSheet(
+                    f"color: {DarkTheme.SUCCESS}; font-size: 12px; border: none;"
+                )
+                self.inspection_label.setText("Model loaded — ready to inspect")
+                self.inspection_label.setStyleSheet(
                     f"color: {DarkTheme.SUCCESS}; font-size: 12px; border: none;"
                 )
                 self.start_inspection_btn.setEnabled(True)
             else:
                 self.model_path_label.setText("Failed to load model")
                 self.model_path_label.setStyleSheet(
-                    f"font-size: 14px; color: {DarkTheme.DANGER}; border: none;"
+                    f"font-size: 12px; color: {DarkTheme.ERROR}; border: none;"
                 )
 
     def _toggle_inspection(self):
@@ -312,6 +398,14 @@ class HomePage(QWidget):
         if svc.is_running:
             svc.stop()
             self.start_inspection_btn.setText("▶  Start Inspection")
+            self.inspection_label.setText("Inspection stopped")
+            self.inspection_label.setStyleSheet(
+                f"color: {DarkTheme.TEXT_SECONDARY}; font-size: 12px; border: none;"
+            )
         else:
             svc.start()
             self.start_inspection_btn.setText("⏹  Stop Inspection")
+            self.inspection_label.setText("Inspection running…")
+            self.inspection_label.setStyleSheet(
+                f"color: {DarkTheme.SUCCESS}; font-size: 12px; border: none;"
+            )
