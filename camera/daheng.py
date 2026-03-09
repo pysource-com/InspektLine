@@ -62,6 +62,9 @@ class DahengCamera:
 
         Returns ``True`` on success, ``False`` otherwise.
         """
+        # Ensure any previous connection is fully closed first
+        self.stop()
+
         try:
             dev_num, dev_info_list = self._device_manager.update_device_list()
             if dev_num == 0:
@@ -119,6 +122,12 @@ class DahengCamera:
 
         except Exception as exc:
             print(f"[DahengCamera] Failed to start: {exc}")
+            # Clean up any partially-opened device
+            if self._cam is not None:
+                try:
+                    self._cam.close_device()
+                except Exception:
+                    pass
             self.is_running = False
             self._cam = None
             return False
@@ -183,50 +192,186 @@ class DahengCamera:
             print(f"[DahengCamera] Frame grab error: {exc}")
             return None
 
-    # ---- camera settings ---------------------------------------------------
+    # ---- parameter introspection -------------------------------------------
+
+    # Registry of all tuneable parameters.
+    # Each entry maps a human-readable key to:
+    #   attr       – gxipy device attribute name
+    #   auto_attr  – optional auto-mode attribute (None if not applicable)
+    #   label      – UI label
+    #   unit       – display unit
+    #   kind       – "float" | "int" | "bool"
+    PARAM_REGISTRY: list[dict] = [
+        {"key": "exposure_time",   "attr": "ExposureTime",   "auto_attr": "ExposureAuto",      "label": "Exposure Time",       "unit": "µs",   "kind": "float"},
+        {"key": "gain",            "attr": "Gain",            "auto_attr": "GainAuto",           "label": "Gain",                "unit": "dB",   "kind": "float"},
+        {"key": "black_level",     "attr": "BlackLevel",      "auto_attr": None,                 "label": "Black Level",         "unit": "",     "kind": "float"},
+        {"key": "gamma",           "attr": "Gamma",           "auto_attr": None,                 "label": "Gamma",               "unit": "",     "kind": "float"},
+        {"key": "gamma_enable",    "attr": "GammaEnable",     "auto_attr": None,                 "label": "Gamma Enable",        "unit": "",     "kind": "bool"},
+        {"key": "sharpness",       "attr": "Sharpness",       "auto_attr": None,                 "label": "Sharpness",           "unit": "",     "kind": "float"},
+        {"key": "saturation",      "attr": "Saturation",      "auto_attr": None,                 "label": "Saturation",          "unit": "",     "kind": "int"},
+        {"key": "contrast",        "attr": "ContrastParam",   "auto_attr": None,                 "label": "Contrast",            "unit": "",     "kind": "int"},
+        {"key": "balance_ratio_r", "attr": "BalanceRatio",     "auto_attr": None,                 "label": "White Balance Red",   "unit": "",     "kind": "float", "selector": ("BalanceRatioSelector", "RED")},
+        {"key": "balance_ratio_g", "attr": "BalanceRatio",     "auto_attr": None,                 "label": "White Balance Green", "unit": "",     "kind": "float", "selector": ("BalanceRatioSelector", "GREEN")},
+        {"key": "balance_ratio_b", "attr": "BalanceRatio",     "auto_attr": None,                 "label": "White Balance Blue",  "unit": "",     "kind": "float", "selector": ("BalanceRatioSelector", "BLUE")},
+        {"key": "auto_white_balance", "attr": "BalanceWhiteAuto", "auto_attr": None,              "label": "Auto White Balance",  "unit": "",     "kind": "enum_auto"},
+        {"key": "frame_rate",      "attr": "AcquisitionFrameRate", "auto_attr": None,             "label": "Frame Rate",          "unit": "fps",  "kind": "float"},
+    ]
+
+    def get_available_parameters(self) -> list[dict]:
+        """Query the camera and return metadata for each supported parameter.
+
+        Returns a list of dicts, each containing:
+        - key, label, unit, kind  (from PARAM_REGISTRY)
+        - value   – current value
+        - min, max, inc  – range (for numeric types)
+        - available – True
+        """
+        if self._cam is None:
+            return []
+
+        result = []
+        for spec in self.PARAM_REGISTRY:
+            try:
+                # Select the channel first for white-balance ratio params
+                if "selector" in spec:
+                    sel_attr, sel_value = spec["selector"]
+                    selector = getattr(self._cam, sel_attr, None)
+                    if selector is None or not selector.is_implemented():
+                        continue
+                    # Map string name to enum value
+                    sel_range = selector.get_range()
+                    matched = [e for e in sel_range if sel_value.upper() in str(e).upper()]
+                    if not matched:
+                        continue
+                    selector.set(matched[0])
+
+                node = getattr(self._cam, spec["attr"], None)
+                if node is None or not node.is_implemented():
+                    continue
+
+                entry = {
+                    "key": spec["key"],
+                    "label": spec["label"],
+                    "unit": spec["unit"],
+                    "kind": spec["kind"],
+                    "available": True,
+                }
+
+                if spec["kind"] in ("float", "int"):
+                    entry["value"] = node.get()
+                    r = node.get_range()
+                    entry["min"] = r["min"]
+                    entry["max"] = r["max"]
+                    entry["inc"] = r.get("inc", 1)
+                elif spec["kind"] == "bool":
+                    entry["value"] = bool(node.get())
+                elif spec["kind"] == "enum_auto":
+                    cur = node.get()
+                    # Normalise to bool (OFF → False, CONTINUOUS/ONCE → True)
+                    entry["value"] = (cur != gx.GxAutoEntry.OFF)
+
+                result.append(entry)
+            except Exception:
+                # Parameter not supported on this model — skip silently
+                continue
+
+        return result
+
+    # ---- generic parameter setter ------------------------------------------
+
+    def set_parameter(self, key: str, value) -> bool:
+        """Set a camera parameter by its registry key.
+
+        Parameters
+        ----------
+        key : str
+            One of the ``key`` values in :pyattr:`PARAM_REGISTRY`.
+        value
+            The value to set (type depends on the parameter kind).
+
+        Returns True on success.
+        """
+        if self._cam is None:
+            return False
+
+        spec = next((s for s in self.PARAM_REGISTRY if s["key"] == key), None)
+        if spec is None:
+            print(f"[DahengCamera] Unknown parameter key: {key}")
+            return False
+
+        try:
+            # Channel selector (white balance R/G/B)
+            if "selector" in spec:
+                sel_attr, sel_value = spec["selector"]
+                selector = getattr(self._cam, sel_attr, None)
+                if selector is None or not selector.is_implemented():
+                    return False
+                sel_range = selector.get_range()
+                matched = [e for e in sel_range if sel_value.upper() in str(e).upper()]
+                if not matched:
+                    return False
+                selector.set(matched[0])
+
+            node = getattr(self._cam, spec["attr"], None)
+            if node is None or not node.is_implemented():
+                return False
+
+            if spec["kind"] == "float":
+                node.set(float(value))
+            elif spec["kind"] == "int":
+                node.set(int(value))
+            elif spec["kind"] == "bool":
+                node.set(bool(value))
+            elif spec["kind"] == "enum_auto":
+                mode = gx.GxAutoEntry.CONTINUOUS if value else gx.GxAutoEntry.OFF
+                node.set(mode)
+
+            print(f"[DahengCamera] {spec['label']} set to {value}")
+            return True
+
+        except Exception as exc:
+            print(f"[DahengCamera] Failed to set {spec['label']}: {exc}")
+            return False
+
+    def get_parameter(self, key: str):
+        """Read back a single parameter value (or None on failure)."""
+        if self._cam is None:
+            return None
+        spec = next((s for s in self.PARAM_REGISTRY if s["key"] == key), None)
+        if spec is None:
+            return None
+        try:
+            if "selector" in spec:
+                sel_attr, sel_value = spec["selector"]
+                selector = getattr(self._cam, sel_attr, None)
+                if selector is None or not selector.is_implemented():
+                    return None
+                sel_range = selector.get_range()
+                matched = [e for e in sel_range if sel_value.upper() in str(e).upper()]
+                if not matched:
+                    return None
+                selector.set(matched[0])
+
+            node = getattr(self._cam, spec["attr"], None)
+            if node is None or not node.is_implemented():
+                return None
+
+            if spec["kind"] == "enum_auto":
+                return node.get() != gx.GxAutoEntry.OFF
+            return node.get()
+        except Exception:
+            return None
+
+    # ---- convenience setters (kept for backward compat) --------------------
 
     def set_exposure(self, exposure_us: float) -> bool:
-        """Set exposure time in microseconds."""
-        if self._cam is None:
-            return False
-        try:
-            if self._cam.ExposureTime.is_implemented():
-                self._cam.ExposureTime.set(exposure_us)
-                print(f"[DahengCamera] Exposure set to {exposure_us} µs")
-                return True
-        except Exception as exc:
-            print(f"[DahengCamera] Failed to set exposure: {exc}")
-        return False
+        return self.set_parameter("exposure_time", exposure_us)
 
     def set_gain(self, gain_db: float) -> bool:
-        """Set analog gain in dB."""
-        if self._cam is None:
-            return False
-        try:
-            if self._cam.Gain.is_implemented():
-                self._cam.Gain.set(gain_db)
-                print(f"[DahengCamera] Gain set to {gain_db} dB")
-                return True
-        except Exception as exc:
-            print(f"[DahengCamera] Failed to set gain: {exc}")
-        return False
+        return self.set_parameter("gain", gain_db)
 
     def set_white_balance(self, auto: bool = True) -> bool:
-        """Enable or disable auto white balance."""
-        if self._cam is None:
-            return False
-        try:
-            if self._cam.BalanceWhiteAuto.is_implemented():
-                mode = (
-                    gx.GxAutoEntry.CONTINUOUS if auto
-                    else gx.GxAutoEntry.OFF
-                )
-                self._cam.BalanceWhiteAuto.set(mode)
-                print(f"[DahengCamera] Auto white balance {'enabled' if auto else 'disabled'}")
-                return True
-        except Exception as exc:
-            print(f"[DahengCamera] Failed to set white balance: {exc}")
-        return False
+        return self.set_parameter("auto_white_balance", auto)
 
     # ---- static helpers ----------------------------------------------------
 

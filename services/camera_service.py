@@ -9,6 +9,7 @@ import threading
 import time
 
 from camera.camera import Camera
+from camera.daheng import DahengCamera
 from services.settings_service import SettingsService
 
 
@@ -89,8 +90,9 @@ class CameraService:
 
     def reopen(self) -> bool:
         """Close then re-open (e.g. after changing camera device)."""
+        self.stop()   # stop background thread if running
         self.close()
-        time.sleep(0.5)  # allow hardware to fully release
+        time.sleep(1.0)  # allow hardware / SDK to fully release
         return self.open()
 
     # ---- frame reading -----------------------------------------------------
@@ -178,4 +180,27 @@ class CameraService:
         except Exception as exc:
             print(f"[CameraService] Could not enumerate cameras: {exc}")
             return []
+
+    # ---- Daheng camera parameters ------------------------------------------
+
+    def get_camera_parameters(self) -> list[dict]:
+        """Return tuneable parameter metadata for the current capture device.
+
+        Only Daheng cameras expose this; other types return an empty list.
+        """
+        if isinstance(self._cap, DahengCamera):
+            try:
+                return self._cap.get_available_parameters()
+            except Exception as exc:
+                print(f"[CameraService] Parameter query error: {exc}")
+        return []
+
+    def set_camera_parameter(self, key: str, value) -> bool:
+        """Set a single camera parameter by key (Daheng only)."""
+        if isinstance(self._cap, DahengCamera):
+            try:
+                return self._cap.set_parameter(key, value)
+            except Exception as exc:
+                print(f"[CameraService] Parameter set error: {exc}")
+        return False
 
