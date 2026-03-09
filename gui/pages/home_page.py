@@ -15,7 +15,6 @@ class HomePage(QWidget):
 
     # Signals for navigation
     navigate_to_settings = Signal()
-    navigate_to_camera = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -89,19 +88,6 @@ class HomePage(QWidget):
         layout.addLayout(title_layout)
         layout.addStretch()
 
-        # Live badge
-        live_badge = QLabel("● LIVE")
-        live_badge.setStyleSheet(f"""
-            color: {DarkTheme.SUCCESS};
-            font-size: 13px;
-            font-weight: bold;
-            border: none;
-            background: transparent;
-        """)
-        layout.addWidget(live_badge)
-
-        layout.addSpacing(16)
-
         # Settings button
         settings_btn = QPushButton("⚙  Settings")
         settings_btn.setFixedHeight(36)
@@ -172,18 +158,6 @@ class HomePage(QWidget):
         info_layout = QHBoxLayout(info_bar)
         info_layout.setContentsMargins(12, 4, 12, 4)
         info_layout.setSpacing(16)
-
-        status_dot = QLabel("●")
-        status_dot.setStyleSheet(f"color: {DarkTheme.SUCCESS}; font-size: 14px; border: none;")
-        info_layout.addWidget(status_dot)
-
-        status_text = QLabel("Connected")
-        status_text.setStyleSheet(
-            f"color: {DarkTheme.TEXT_PRIMARY}; font-size: 11px; font-weight: bold; border: none;"
-        )
-        info_layout.addWidget(status_text)
-
-        info_layout.addStretch()
 
         res_label = QLabel("Resolution:")
         res_label.setStyleSheet(f"color: {DarkTheme.TEXT_SECONDARY}; font-size: 11px; border: none;")
@@ -303,26 +277,6 @@ class HomePage(QWidget):
 
         layout.addStretch()
 
-        # --- Bottom: camera pop-out button ---
-        camera_btn = QPushButton("📹  Open Camera Window")
-        camera_btn.setFixedHeight(36)
-        camera_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        camera_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {DarkTheme.BG_INPUT};
-                color: {DarkTheme.TEXT_SECONDARY};
-                border: none;
-                border-radius: 6px;
-                padding: 0 16px;
-                font-size: 12px;
-            }}
-            QPushButton:hover {{
-                background-color: {DarkTheme.BG_HOVER};
-                color: {DarkTheme.TEXT_PRIMARY};
-            }}
-        """)
-        camera_btn.clicked.connect(self.navigate_to_camera.emit)
-        layout.addWidget(camera_btn)
 
         return panel
 

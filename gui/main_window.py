@@ -1,14 +1,19 @@
 """Main window for InspektLine GUI — thin orchestrator over services."""
 
 from PySide6.QtWidgets import QMainWindow, QVBoxLayout, QDialog
-from PySide6.QtCore import QTimer, Qt, Signal
+from PySide6.QtCore import Qt, Signal, QObject
 from PySide6.QtGui import QIcon
 
 from services.settings_service import SettingsService
 from services.camera_service import CameraService
 from services.inspection_service import InspectionService
-from gui.pages import CameraPage, SettingsPage, HomePage
+from gui.pages import SettingsPage, HomePage
 from gui.styles import DarkTheme
+
+
+class FrameBridge(QObject):
+    """Bridge to marshal frames from background thread to Qt main thread."""
+    frame_ready = Signal(object)  # numpy ndarray
 
 
 class PageDialog(QDialog):
@@ -35,9 +40,6 @@ class MainWindow(QMainWindow):
     wires Qt signals/slots and manages page navigation.
     """
 
-    # Emitted on every new frame (from timer) so pages can update
-    frame_ready = Signal(object)  # numpy ndarray
-
     def __init__(
         self,
         settings_service: SettingsService,
@@ -51,23 +53,24 @@ class MainWindow(QMainWindow):
         self.camera_service = camera_service
         self.inspection_service = inspection_service
 
-        # --- UI state ---
-        self._timer: QTimer | None = None
+        # --- frame bridge (background thread -> main thread) ---
+        self._bridge = FrameBridge()
+        self._bridge.frame_ready.connect(self._on_new_frame, Qt.ConnectionType.QueuedConnection)
+
         self._frame_count = 0
+        self._resolution_set = False
 
         # Dialog references (keep alive while open)
         self._dialogs: dict[str, PageDialog | None] = {
             "settings": None,
-            "camera": None,
         }
         # Page widget references
         self._pages: dict[str, object | None] = {
-            "camera": None,
             "settings": None,
         }
 
         self._init_ui()
-        self._start_frame_timer()
+        self._start_camera()
 
     # ================================================================
     # UI Initialisation
@@ -82,51 +85,38 @@ class MainWindow(QMainWindow):
         # Home page is the central widget
         self.home_page = HomePage(parent=self)
         self.home_page.navigate_to_settings.connect(self.open_settings_window)
-        self.home_page.navigate_to_camera.connect(self.open_camera_window)
         self.setCentralWidget(self.home_page)
 
     # ================================================================
-    # Frame timer
+    # Camera capture (background thread)
     # ================================================================
 
-    def _start_frame_timer(self):
-        """Open camera and start a QTimer that reads frames."""
-        self.camera_service.open()
+    def _start_camera(self):
+        """Open camera and start background capture thread."""
+        self.camera_service.start(
+            on_frame=self._on_frame_from_thread,
+            fps=60,
+        )
 
-        self._timer = QTimer(self)
-        self._timer.timeout.connect(self._on_timer_tick)
-        self._timer.start(30)  # ~33 fps
+    def _stop_camera(self):
+        """Stop background capture thread."""
+        self.camera_service.stop()
 
-    def _stop_frame_timer(self):
-        if self._timer and self._timer.isActive():
-            self._timer.stop()
+    def _on_frame_from_thread(self, frame):
+        """Called from the camera background thread — emit signal to main thread."""
+        self._bridge.frame_ready.emit(frame)
 
-    def _on_timer_tick(self):
-        ok, frame = self.camera_service.read_frame()
-        if not ok:
-            return
-
+    def _on_new_frame(self, frame):
+        """Handle a new frame on the Qt main thread."""
         self._frame_count += 1
 
-        # Push frame to home page video label (always visible)
+        # Push frame to home page video label
         if hasattr(self.home_page, "video_label") and self.home_page.video_label:
             self.home_page.video_label.display_frame(frame)
-            if self._frame_count == 1 and hasattr(self.home_page, "resolution_value"):
+            if not self._resolution_set and hasattr(self.home_page, "resolution_value"):
                 h, w = frame.shape[:2]
                 self.home_page.resolution_value.setText(f"{w}×{h}")
-
-        # Push frame to open camera page dialog (if open)
-        cam_dialog = self._dialogs.get("camera")
-        cam_page = self._pages.get("camera")
-        if cam_dialog and cam_dialog.isVisible() and cam_page:
-            if hasattr(cam_page, "video_label"):
-                cam_page.video_label.display_frame(frame)
-            if self._frame_count == 1 and hasattr(cam_page, "resolution_value"):
-                h, w = frame.shape[:2]
-                cam_page.resolution_value.setText(f"{w}×{h}")
-
-        # Emit for any other listeners
-        self.frame_ready.emit(frame)
+                self._resolution_set = True
 
     # ================================================================
     # Window-opening helpers
@@ -160,12 +150,6 @@ class MainWindow(QMainWindow):
         dialog.resize(650, 800)
         dialog.show()
 
-    def open_camera_window(self):
-        dialog, page = self._open_dialog(
-            "camera", "InspektLine - Camera Feed", CameraPage,
-        )
-        dialog.show()
-
     # ================================================================
     # Convenience accessors
     # ================================================================
@@ -176,9 +160,10 @@ class MainWindow(QMainWindow):
 
     def refresh_camera(self):
         """Restart camera (e.g. after changing device in settings)."""
-        self._stop_frame_timer()
+        self._stop_camera()
         self.camera_service.reopen()
-        self._start_frame_timer()
+        self._resolution_set = False
+        self._start_camera()
 
     def toggle_inspection(self):
         if self.inspection_service.is_running:
@@ -187,17 +172,17 @@ class MainWindow(QMainWindow):
             self.inspection_service.start()
 
     def toggle_pause(self):
-        if self._timer and self._timer.isActive():
-            self._stop_frame_timer()
+        if self.camera_service._running:
+            self._stop_camera()
         else:
-            self._start_frame_timer()
+            self._start_camera()
 
     # ================================================================
     # Events
     # ================================================================
 
     def closeEvent(self, event):
-        self._stop_frame_timer()
+        self._stop_camera()
         self.camera_service.close()
 
         for dialog in self._dialogs.values():
