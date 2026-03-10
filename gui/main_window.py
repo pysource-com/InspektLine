@@ -7,6 +7,7 @@ from PySide6.QtGui import QIcon
 from services.settings_service import SettingsService
 from services.camera_service import CameraService
 from services.inspection_service import InspectionService
+from services.dataset_service import DatasetService
 from gui.pages import SettingsPage, HomePage
 from gui.styles import DarkTheme
 
@@ -45,6 +46,7 @@ class MainWindow(QMainWindow):
         settings_service: SettingsService,
         camera_service: CameraService,
         inspection_service: InspectionService,
+        dataset_service: DatasetService,
     ):
         super().__init__()
 
@@ -52,6 +54,7 @@ class MainWindow(QMainWindow):
         self.settings_service = settings_service
         self.camera_service = camera_service
         self.inspection_service = inspection_service
+        self.dataset_service = dataset_service
 
         # --- frame bridge (background thread -> main thread) ---
         self._bridge = FrameBridge()
@@ -118,6 +121,20 @@ class MainWindow(QMainWindow):
                 self.home_page.resolution_value.setText(f"{w}×{h}")
                 self._resolution_set = True
 
+            # Update real-time FPS display
+            if hasattr(self.home_page, "fps_value"):
+                fps = self.home_page.video_label.fps
+                self.home_page.fps_value.setText(f"{fps:.1f}")
+
+        # Forward frame to dataset collection (if active)
+        if self.dataset_service.is_collecting:
+            self.dataset_service.process_frame(frame)
+            # Update saved-count on home page
+            if hasattr(self.home_page, "update_collection_status"):
+                self.home_page.update_collection_status(
+                    self.dataset_service.frames_saved
+                )
+
     # ================================================================
     # Window-opening helpers
     # ================================================================
@@ -182,6 +199,7 @@ class MainWindow(QMainWindow):
     # ================================================================
 
     def closeEvent(self, event):
+        self.dataset_service.stop_collection()
         self._stop_camera()
         self.camera_service.close()
 

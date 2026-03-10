@@ -11,6 +11,7 @@ from config import APP_TITLE
 from services.settings_service import SettingsService
 from services.camera_service import CameraService
 from services.inspection_service import InspectionService
+from services.dataset_service import DatasetService
 from gui.main_window import MainWindow
 
 
@@ -21,12 +22,14 @@ def main() -> None:
     settings = SettingsService()
     camera_svc = CameraService(settings)
     inspection_svc = InspectionService(settings, camera_svc)
+    dataset_svc = DatasetService(settings)
 
     # --- create GUI (thin layer over services) ---
     window = MainWindow(
         settings_service=settings,
         camera_service=camera_svc,
         inspection_service=inspection_svc,
+        dataset_service=dataset_svc,
     )
     window.setWindowTitle(APP_TITLE)
     window.show()

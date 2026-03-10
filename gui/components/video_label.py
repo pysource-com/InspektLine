@@ -1,5 +1,8 @@
 """Video display label component."""
 
+import time
+from collections import deque
+
 from PySide6.QtWidgets import QLabel
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QImage, QPixmap
@@ -14,6 +17,24 @@ class VideoLabel(QLabel):
         self.setStyleSheet("background-color: #000000; border: none;")
         self.setMinimumSize(800, 480)
 
+        # FPS tracking — keep timestamps of recently displayed frames
+        self._frame_timestamps: deque[float] = deque(maxlen=60)
+        self._current_fps: float = 0.0
+
+    @property
+    def fps(self) -> float:
+        """Return the current measured FPS."""
+        return self._current_fps
+
+    def _update_fps(self):
+        """Recalculate FPS based on recent frame timestamps."""
+        now = time.perf_counter()
+        self._frame_timestamps.append(now)
+        if len(self._frame_timestamps) >= 2:
+            elapsed = self._frame_timestamps[-1] - self._frame_timestamps[0]
+            if elapsed > 0:
+                self._current_fps = (len(self._frame_timestamps) - 1) / elapsed
+
     def display_frame(self, frame):
         """
         Display a video frame.
@@ -23,6 +44,8 @@ class VideoLabel(QLabel):
         """
         if frame is None:
             return
+
+        self._update_fps()
 
         # Convert BGR to RGB
         frame_rgb = frame[..., ::-1].copy()

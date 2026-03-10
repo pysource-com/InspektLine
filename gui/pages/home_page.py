@@ -2,7 +2,7 @@
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QFrame, QFileDialog, QSizePolicy,
+    QFrame, QFileDialog, QSizePolicy, QComboBox, QSpinBox,
 )
 from PySide6.QtCore import Qt, Signal
 
@@ -28,6 +28,15 @@ class HomePage(QWidget):
         self.load_model_btn = None
         self.resolution_value = None
         self.inspection_label = None
+
+        # Dataset collection UI references
+        self.collection_mode_combo = None
+        self.frame_skip_spin = None
+        self.frame_skip_label = None
+        self.output_dir_label = None
+        self.collection_btn = None
+        self.collection_status_label = None
+        self._output_dir = "storage/dataset"
 
         self.init_ui()
 
@@ -169,6 +178,20 @@ class HomePage(QWidget):
         )
         info_layout.addWidget(self.resolution_value)
 
+        info_layout.addStretch()
+
+        fps_icon = QLabel("FPS:")
+        fps_icon.setStyleSheet(
+            f"color: {DarkTheme.TEXT_SECONDARY}; font-size: 11px; border: none;"
+        )
+        info_layout.addWidget(fps_icon)
+
+        self.fps_value = QLabel("—")
+        self.fps_value.setStyleSheet(
+            f"color: {DarkTheme.TEXT_PRIMARY}; font-size: 11px; font-weight: bold; border: none;"
+        )
+        info_layout.addWidget(self.fps_value)
+
         layout.addWidget(info_bar)
 
         return container
@@ -275,6 +298,152 @@ class HomePage(QWidget):
         self.start_inspection_btn.clicked.connect(self._toggle_inspection)
         layout.addWidget(self.start_inspection_btn)
 
+        # Separator
+        sep2 = QFrame()
+        sep2.setFrameShape(QFrame.Shape.HLine)
+        sep2.setStyleSheet(f"color: {DarkTheme.BORDER_PRIMARY}; border: none; background: {DarkTheme.BORDER_PRIMARY}; max-height: 1px;")
+        layout.addWidget(sep2)
+
+        # --- Dataset Collection section ---
+        dataset_title = QLabel("Dataset Collection")
+        dataset_title.setStyleSheet(
+            f"color: {DarkTheme.TEXT_PRIMARY}; font-size: 14px; "
+            f"font-weight: bold; border: none;"
+        )
+        layout.addWidget(dataset_title)
+
+        # Mode selector
+        mode_label = QLabel("Mode")
+        mode_label.setStyleSheet(
+            f"color: {DarkTheme.TEXT_SECONDARY}; font-size: 12px; border: none;"
+        )
+        layout.addWidget(mode_label)
+
+        self.collection_mode_combo = QComboBox()
+        self.collection_mode_combo.addItems(["Save Images", "Record Video"])
+        self.collection_mode_combo.setFixedHeight(36)
+        self.collection_mode_combo.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.collection_mode_combo.setStyleSheet(f"""
+            QComboBox {{
+                background-color: {DarkTheme.BG_INPUT};
+                color: {DarkTheme.TEXT_PRIMARY};
+                border: 1px solid {DarkTheme.BORDER_PRIMARY};
+                border-radius: 6px;
+                padding: 0 12px;
+                font-size: 13px;
+            }}
+            QComboBox:hover {{
+                border-color: {DarkTheme.BORDER_SECONDARY};
+            }}
+            QComboBox::drop-down {{
+                border: none;
+                width: 24px;
+            }}
+            QComboBox QAbstractItemView {{
+                background-color: {DarkTheme.BG_INPUT};
+                color: {DarkTheme.TEXT_PRIMARY};
+                selection-background-color: {DarkTheme.PRIMARY};
+                border: 1px solid {DarkTheme.BORDER_PRIMARY};
+            }}
+        """)
+        self.collection_mode_combo.currentIndexChanged.connect(self._on_mode_changed)
+        layout.addWidget(self.collection_mode_combo)
+
+        # Frame skip (only visible in image mode)
+        self.frame_skip_label = QLabel("Save every N frames")
+        self.frame_skip_label.setStyleSheet(
+            f"color: {DarkTheme.TEXT_SECONDARY}; font-size: 12px; border: none;"
+        )
+        layout.addWidget(self.frame_skip_label)
+
+        self.frame_skip_spin = QSpinBox()
+        self.frame_skip_spin.setMinimum(1)
+        self.frame_skip_spin.setMaximum(1000)
+        self.frame_skip_spin.setValue(5)
+        self.frame_skip_spin.setFixedHeight(36)
+        self.frame_skip_spin.setStyleSheet(f"""
+            QSpinBox {{
+                background-color: {DarkTheme.BG_INPUT};
+                color: {DarkTheme.TEXT_PRIMARY};
+                border: 1px solid {DarkTheme.BORDER_PRIMARY};
+                border-radius: 6px;
+                padding: 0 12px;
+                font-size: 13px;
+            }}
+            QSpinBox:hover {{
+                border-color: {DarkTheme.BORDER_SECONDARY};
+            }}
+            QSpinBox::up-button, QSpinBox::down-button {{
+                background-color: {DarkTheme.BG_HOVER};
+                border: none;
+                width: 20px;
+            }}
+        """)
+        layout.addWidget(self.frame_skip_spin)
+
+        # Output directory picker
+        output_dir_row = QHBoxLayout()
+        output_dir_row.setSpacing(8)
+
+        self.output_dir_label = QLabel("storage/dataset")
+        self.output_dir_label.setStyleSheet(
+            f"color: {DarkTheme.TEXT_SECONDARY}; font-size: 11px; border: none;"
+        )
+        self.output_dir_label.setWordWrap(True)
+        output_dir_row.addWidget(self.output_dir_label, stretch=1)
+
+        browse_btn = QPushButton("📁")
+        browse_btn.setFixedSize(36, 36)
+        browse_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        browse_btn.setToolTip("Choose output folder")
+        browse_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {DarkTheme.BG_INPUT};
+                color: {DarkTheme.TEXT_PRIMARY};
+                border: 1px solid {DarkTheme.BORDER_PRIMARY};
+                border-radius: 6px;
+                font-size: 16px;
+            }}
+            QPushButton:hover {{
+                background-color: {DarkTheme.BG_HOVER};
+            }}
+        """)
+        browse_btn.clicked.connect(self._browse_output_dir)
+        output_dir_row.addWidget(browse_btn)
+
+        layout.addLayout(output_dir_row)
+
+        # Collection status
+        self.collection_status_label = QLabel("Ready")
+        self.collection_status_label.setStyleSheet(
+            f"color: {DarkTheme.TEXT_SECONDARY}; font-size: 12px; border: none;"
+        )
+        layout.addWidget(self.collection_status_label)
+
+        # Start / Stop Collection button
+        self.collection_btn = QPushButton("⏺  Start Collection")
+        self.collection_btn.setFixedHeight(44)
+        self.collection_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.collection_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {DarkTheme.PRIMARY};
+                color: white;
+                border: none;
+                border-radius: 8px;
+                padding: 0 20px;
+                font-size: 13px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background-color: {DarkTheme.PRIMARY_HOVER};
+            }}
+            QPushButton:pressed {{
+                background-color: {DarkTheme.PRIMARY_PRESSED};
+            }}
+        """)
+        self.collection_btn.clicked.connect(self._toggle_collection)
+        layout.addWidget(self.collection_btn)
+
         layout.addStretch()
 
 
@@ -363,3 +532,117 @@ class HomePage(QWidget):
             self.inspection_label.setStyleSheet(
                 f"color: {DarkTheme.SUCCESS}; font-size: 12px; border: none;"
             )
+
+    # ================================================================
+    # Dataset Collection
+    # ================================================================
+
+    def _on_mode_changed(self, index: int):
+        """Show/hide the frame-skip spinner depending on the selected mode."""
+        is_image_mode = index == 0  # "Save Images" is first
+        self.frame_skip_spin.setVisible(is_image_mode)
+        self.frame_skip_label.setVisible(is_image_mode)
+
+    def _browse_output_dir(self):
+        """Open folder picker for the dataset output directory."""
+        chosen = QFileDialog.getExistingDirectory(
+            self, "Select Output Folder", self._output_dir,
+        )
+        if chosen:
+            self._output_dir = chosen
+            self.output_dir_label.setText(chosen)
+
+    def _toggle_collection(self):
+        """Start or stop dataset collection."""
+        if not self.parent_window or not hasattr(self.parent_window, "dataset_service"):
+            return
+
+        svc = self.parent_window.dataset_service
+
+        if svc.is_collecting:
+            svc.stop_collection()
+            self.collection_btn.setText("⏺  Start Collection")
+            self.collection_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {DarkTheme.PRIMARY};
+                    color: white;
+                    border: none;
+                    border-radius: 8px;
+                    padding: 0 20px;
+                    font-size: 13px;
+                    font-weight: bold;
+                }}
+                QPushButton:hover {{
+                    background-color: {DarkTheme.PRIMARY_HOVER};
+                }}
+                QPushButton:pressed {{
+                    background-color: {DarkTheme.PRIMARY_PRESSED};
+                }}
+            """)
+            self.collection_status_label.setText(
+                f"Done — {svc.frames_saved} frames saved"
+            )
+            self.collection_status_label.setStyleSheet(
+                f"color: {DarkTheme.TEXT_SECONDARY}; font-size: 12px; border: none;"
+            )
+            # Re-enable controls
+            self.collection_mode_combo.setEnabled(True)
+            self.frame_skip_spin.setEnabled(True)
+        else:
+            mode = "images" if self.collection_mode_combo.currentIndex() == 0 else "video"
+            frame_skip = self.frame_skip_spin.value()
+
+            ok = svc.start_collection(
+                output_dir=self._output_dir,
+                mode=mode,
+                frame_skip=frame_skip,
+            )
+            if not ok:
+                self.collection_status_label.setText("Failed to start collection")
+                self.collection_status_label.setStyleSheet(
+                    f"color: {DarkTheme.ERROR}; font-size: 12px; border: none;"
+                )
+                return
+
+            self.collection_btn.setText("⏹  Stop Collection")
+            self.collection_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {DarkTheme.ERROR};
+                    color: white;
+                    border: none;
+                    border-radius: 8px;
+                    padding: 0 20px;
+                    font-size: 13px;
+                    font-weight: bold;
+                }}
+                QPushButton:hover {{
+                    background-color: {DarkTheme.ERROR_HOVER};
+                }}
+                QPushButton:pressed {{
+                    background-color: {DarkTheme.ERROR_PRESSED};
+                }}
+            """)
+            label = "Recording video…" if mode == "video" else "Capturing images…"
+            self.collection_status_label.setText(label)
+            self.collection_status_label.setStyleSheet(
+                f"color: {DarkTheme.SUCCESS}; font-size: 12px; border: none;"
+            )
+            # Disable controls while collecting
+            self.collection_mode_combo.setEnabled(False)
+            self.frame_skip_spin.setEnabled(False)
+
+    def update_collection_status(self, frames_saved: int):
+        """Called from MainWindow on each frame to update the counter."""
+        if self.collection_status_label is None:
+            return
+        svc = self.parent_window.dataset_service if self.parent_window else None
+        if svc and svc.is_collecting:
+            if svc.mode == "video":
+                self.collection_status_label.setText(
+                    f"Recording… {frames_saved} frames"
+                )
+            else:
+                self.collection_status_label.setText(
+                    f"Capturing… {frames_saved} images saved"
+                )
+

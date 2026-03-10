@@ -34,10 +34,20 @@ class DetectionSettings:
 
 
 @dataclass
+class DatasetSettings:
+    """Dataset collection settings."""
+    dataset_dir: str = "storage/dataset"
+    collection_mode: str = "images"  # "video" | "images"
+    frame_skip: int = 5
+    video_format: str = "mp4"
+
+
+@dataclass
 class AppSettings:
     """Root settings container."""
     camera: CameraSettings = field(default_factory=CameraSettings)
     detection: DetectionSettings = field(default_factory=DetectionSettings)
+    dataset: DatasetSettings = field(default_factory=DatasetSettings)
 
 
 class SettingsService:
@@ -73,6 +83,10 @@ class SettingsService:
                 for k, v in data["detection"].items():
                     if hasattr(self.settings.detection, k):
                         setattr(self.settings.detection, k, v)
+            if "dataset" in data:
+                for k, v in data["dataset"].items():
+                    if hasattr(self.settings.dataset, k):
+                        setattr(self.settings.dataset, k, v)
         except (json.JSONDecodeError, OSError) as exc:
             print(f"[SettingsService] Could not load settings: {exc}")
 
@@ -91,3 +105,8 @@ class SettingsService:
     @property
     def detection(self) -> DetectionSettings:
         return self.settings.detection
+
+    @property
+    def dataset(self) -> DatasetSettings:
+        return self.settings.dataset
+

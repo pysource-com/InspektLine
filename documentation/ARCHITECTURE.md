@@ -24,7 +24,8 @@ InspektLine/
 ├── services/
 │   ├── settings_service.py  # JSON-persisted application settings
 │   ├── camera_service.py    # Camera lifecycle (open, read, close)
-│   └── inspection_service.py# Orchestrates camera + model inference
+│   ├── inspection_service.py# Orchestrates camera + model inference
+│   └── dataset_service.py   # Dataset collection (video / image capture)
 │
 ├── gui/
 │   ├── main_window.py       # Main window — wires services to pages
@@ -70,6 +71,7 @@ All business logic lives in `services/` — no Qt dependency.
 - **SettingsService** — loads/saves `settings.json`, exposes typed dataclasses
 - **CameraService** — owns `cv2.VideoCapture` lifecycle
 - **InspectionService** — loads a transformer model, runs inference on frames
+- **DatasetService** — collects frames as video (`.mp4`) or images (`.png`) into timestamped session folders
 
 ## GUI Layer
 
