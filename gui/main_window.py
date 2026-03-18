@@ -8,6 +8,7 @@ from services.settings_service import SettingsService
 from services.camera_service import CameraService
 from services.inspection_service import InspectionService
 from services.dataset_service import DatasetService
+from detector.annotate import draw_detections
 from gui.pages import SettingsPage, HomePage
 from gui.styles import DarkTheme
 
@@ -113,9 +114,24 @@ class MainWindow(QMainWindow):
         """Handle a new frame on the Qt main thread."""
         self._frame_count += 1
 
+        # Feed frame to inference thread (non-blocking)
+        if self.inspection_service.is_running:
+            self.inspection_service.submit_frame(frame)
+
+        # Read latest detections and draw overlay
+        display_frame = frame
+        detections = []
+        if self.inspection_service.is_running and self.inspection_service.has_model:
+            detections = self.inspection_service.latest_detections
+            if detections:
+                draw_masks = self.inspection_service.task_type == "segmentation"
+                display_frame = draw_detections(
+                    frame, detections, draw_masks=draw_masks
+                )
+
         # Push frame to home page video label
         if hasattr(self.home_page, "video_label") and self.home_page.video_label:
-            self.home_page.video_label.display_frame(frame)
+            self.home_page.video_label.display_frame(display_frame)
             if not self._resolution_set and hasattr(self.home_page, "resolution_value"):
                 h, w = frame.shape[:2]
                 self.home_page.resolution_value.setText(f"{w}×{h}")
@@ -125,6 +141,10 @@ class MainWindow(QMainWindow):
             if hasattr(self.home_page, "fps_value"):
                 fps = self.home_page.video_label.fps
                 self.home_page.fps_value.setText(f"{fps:.1f}")
+
+        # Update detection count on home page
+        if detections and hasattr(self.home_page, "update_detection_count"):
+            self.home_page.update_detection_count(len(detections))
 
         # Forward frame to dataset collection (if active)
         if self.dataset_service.is_collecting:
@@ -199,6 +219,7 @@ class MainWindow(QMainWindow):
     # ================================================================
 
     def closeEvent(self, event):
+        self.inspection_service.stop()
         self.dataset_service.stop_collection()
         self._stop_camera()
         self.camera_service.close()

@@ -28,6 +28,10 @@ class HomePage(QWidget):
         self.load_model_btn = None
         self.resolution_value = None
         self.inspection_label = None
+        self.task_type_combo = None
+        self.model_variant_combo = None
+        self.model_variant_label = None
+        self.detection_count_label = None
 
         # Dataset collection UI references
         self.collection_mode_combo = None
@@ -214,12 +218,67 @@ class HomePage(QWidget):
         layout.setSpacing(16)
 
         # --- Model section ---
-        model_section_title = QLabel("Detection Model")
+        model_section_title = QLabel("Model")
         model_section_title.setStyleSheet(
             f"color: {DarkTheme.TEXT_PRIMARY}; font-size: 14px; "
             f"font-weight: bold; border: none;"
         )
         layout.addWidget(model_section_title)
+
+        # Shared combo style
+        combo_style = f"""
+            QComboBox {{
+                background-color: {DarkTheme.BG_INPUT};
+                color: {DarkTheme.TEXT_PRIMARY};
+                border: 1px solid {DarkTheme.BORDER_PRIMARY};
+                border-radius: 6px;
+                padding: 0 12px;
+                font-size: 13px;
+            }}
+            QComboBox:hover {{
+                border-color: {DarkTheme.BORDER_SECONDARY};
+            }}
+            QComboBox::drop-down {{
+                border: none;
+                width: 24px;
+            }}
+            QComboBox QAbstractItemView {{
+                background-color: {DarkTheme.BG_INPUT};
+                color: {DarkTheme.TEXT_PRIMARY};
+                selection-background-color: {DarkTheme.PRIMARY};
+                border: 1px solid {DarkTheme.BORDER_PRIMARY};
+            }}
+        """
+
+        # Task type selector
+        type_label = QLabel("Task")
+        type_label.setStyleSheet(
+            f"color: {DarkTheme.TEXT_SECONDARY}; font-size: 12px; border: none;"
+        )
+        layout.addWidget(type_label)
+
+        self.task_type_combo = QComboBox()
+        self.task_type_combo.addItems(["Classification", "Detection", "Segmentation"])
+        self.task_type_combo.setFixedHeight(36)
+        self.task_type_combo.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.task_type_combo.setStyleSheet(combo_style)
+        self.task_type_combo.currentIndexChanged.connect(self._on_task_type_changed)
+        layout.addWidget(self.task_type_combo)
+
+        # Model variant selector (visible for detection / segmentation)
+        self.model_variant_label = QLabel("Model")
+        self.model_variant_label.setStyleSheet(
+            f"color: {DarkTheme.TEXT_SECONDARY}; font-size: 12px; border: none;"
+        )
+        self.model_variant_label.setVisible(False)
+        layout.addWidget(self.model_variant_label)
+
+        self.model_variant_combo = QComboBox()
+        self.model_variant_combo.setFixedHeight(36)
+        self.model_variant_combo.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.model_variant_combo.setStyleSheet(combo_style)
+        self.model_variant_combo.setVisible(False)
+        layout.addWidget(self.model_variant_combo)
 
         # Model card
         model_card = self._create_model_card()
@@ -297,6 +356,14 @@ class HomePage(QWidget):
         """)
         self.start_inspection_btn.clicked.connect(self._toggle_inspection)
         layout.addWidget(self.start_inspection_btn)
+
+        # Detection count (visible during RF-DETR inspection)
+        self.detection_count_label = QLabel("")
+        self.detection_count_label.setStyleSheet(
+            f"color: {DarkTheme.TEXT_SECONDARY}; font-size: 12px; border: none;"
+        )
+        self.detection_count_label.setVisible(False)
+        layout.addWidget(self.detection_count_label)
 
         # Separator
         sep2 = QFrame()
@@ -485,19 +552,45 @@ class HomePage(QWidget):
     # ================================================================
 
     def _load_model(self):
-        """Open file dialog to select a model directory or file."""
-        model_path = QFileDialog.getExistingDirectory(
-            self, "Select Model Directory", "",
-        )
+        """Open file dialog to select a model directory or checkpoint file."""
+        task_index = self.task_type_combo.currentIndex()
+        # 0 = Classification, 1 = Detection, 2 = Segmentation
+        task_type = ["classification", "detection", "segmentation"][task_index]
+
+        if task_type == "classification":
+            # Classifier: pick a HuggingFace model directory
+            model_path = QFileDialog.getExistingDirectory(
+                self, "Select Model Directory", "",
+            )
+        else:
+            # RF-DETR / RF-DETRSeg: pick a .pth checkpoint file
+            model_path, _ = QFileDialog.getOpenFileName(
+                self, "Select Checkpoint", "",
+                "PyTorch Checkpoint (*.pth *.pt);;All Files (*)",
+            )
+
         if not model_path:
             return
 
         if self.parent_window and hasattr(self.parent_window, "inspection_service"):
+            # Store task + variant in settings before loading
+            settings_svc = getattr(self.parent_window, "settings_service", None)
+            if settings_svc:
+                settings_svc.detection.task_type = task_type
+                if task_type != "classification":
+                    settings_svc.detection.model_variant = (
+                        self.model_variant_combo.currentText()
+                    )
+
             success = self.parent_window.inspection_service.load_model(model_path)
             if success:
                 short_name = model_path.replace("\\", "/").split("/")[-1]
+                if task_type == "classification":
+                    tag = "Classifier"
+                else:
+                    tag = self.model_variant_combo.currentText()
                 self.model_path_label.setText(model_path)
-                self.model_status.setText(f"Model: {short_name}")
+                self.model_status.setText(f"{tag}: {short_name}")
                 self.model_status.setStyleSheet(
                     f"color: {DarkTheme.SUCCESS}; font-size: 12px; border: none;"
                 )
@@ -512,6 +605,34 @@ class HomePage(QWidget):
                     f"font-size: 12px; color: {DarkTheme.ERROR}; border: none;"
                 )
 
+    def _on_task_type_changed(self, index: int):
+        """Populate model variant combo based on the selected task type."""
+        # 0 = Classification, 1 = Detection, 2 = Segmentation
+        show_variant = index > 0
+        self.model_variant_label.setVisible(show_variant)
+        self.model_variant_combo.setVisible(show_variant)
+
+        if not show_variant:
+            return
+
+        from detector.rfdetr_detector import RFDETRDetector
+
+        self.model_variant_combo.blockSignals(True)
+        self.model_variant_combo.clear()
+
+        if index == 1:  # Detection
+            self.model_variant_combo.addItems(RFDETRDetector.DETECTION_MODELS)
+        elif index == 2:  # Segmentation
+            self.model_variant_combo.addItems(RFDETRDetector.SEGMENTATION_MODELS)
+
+        self.model_variant_combo.blockSignals(False)
+
+    def update_detection_count(self, count: int):
+        """Called from MainWindow to update the live detection counter."""
+        if self.detection_count_label is not None:
+            self.detection_count_label.setVisible(True)
+            self.detection_count_label.setText(f"Detections: {count}")
+
     def _toggle_inspection(self):
         """Start or stop real-time inspection."""
         if not self.parent_window or not hasattr(self.parent_window, "inspection_service"):
@@ -525,6 +646,7 @@ class HomePage(QWidget):
             self.inspection_label.setStyleSheet(
                 f"color: {DarkTheme.TEXT_SECONDARY}; font-size: 12px; border: none;"
             )
+            self.detection_count_label.setVisible(False)
         else:
             svc.start()
             self.start_inspection_btn.setText("⏹  Stop Inspection")
@@ -532,6 +654,9 @@ class HomePage(QWidget):
             self.inspection_label.setStyleSheet(
                 f"color: {DarkTheme.SUCCESS}; font-size: 12px; border: none;"
             )
+            if svc.task_type in ("detection", "segmentation"):
+                self.detection_count_label.setVisible(True)
+                self.detection_count_label.setText("Detections: 0")
 
     # ================================================================
     # Dataset Collection

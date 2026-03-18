@@ -37,6 +37,27 @@ class DetectionSettings(BaseSettingsSection):
         )
         self.main_layout.addWidget(self.defect_size_input)
 
+        # --- Model parameters ---
+        self.add_field_label("Number of Classes", top_margin=10)
+
+        self.num_classes_input = QLineEdit("1")
+        self.num_classes_input.setStyleSheet(StyleSheets.get_input_style())
+        self.num_classes_input.setFixedHeight(50)
+        self.num_classes_input.textChanged.connect(
+            lambda value: self.emit_setting_changed("num_classes", value)
+        )
+        self.main_layout.addWidget(self.num_classes_input)
+
+        self.add_field_label("Model Input Resolution", top_margin=10)
+
+        self.model_resolution_input = QLineEdit("560")
+        self.model_resolution_input.setStyleSheet(StyleSheets.get_input_style())
+        self.model_resolution_input.setFixedHeight(50)
+        self.model_resolution_input.textChanged.connect(
+            lambda value: self.emit_setting_changed("model_resolution", value)
+        )
+        self.main_layout.addWidget(self.model_resolution_input)
+
     def get_settings(self) -> dict:
         """
         Get all current detection settings.
@@ -47,6 +68,8 @@ class DetectionSettings(BaseSettingsSection):
         return {
             "confidence_threshold": self.confidence_input.text(),
             "min_defect_size": self.defect_size_input.text(),
+            "num_classes": self.num_classes_input.text(),
+            "model_resolution": self.model_resolution_input.text(),
         }
 
     def load_settings(self, settings: dict):
@@ -61,4 +84,10 @@ class DetectionSettings(BaseSettingsSection):
 
         if "min_defect_size" in settings:
             self.defect_size_input.setText(str(settings["min_defect_size"]))
+
+        if "num_classes" in settings:
+            self.num_classes_input.setText(str(settings["num_classes"]))
+
+        if "model_resolution" in settings:
+            self.model_resolution_input.setText(str(settings["model_resolution"]))
 

@@ -31,6 +31,10 @@ class DetectionSettings:
     min_defect_size: int = 10
     detection_frequency: str = "Every 1.5 seconds"
     active_model_path: str = ""
+    task_type: str = "classification"       # "classification" | "detection" | "segmentation"
+    model_variant: str = ""                 # e.g. "RF-DETR Base", "RF-DETRSeg Large", ...
+    num_classes: int = 1
+    model_resolution: int = 560
 
 
 @dataclass
