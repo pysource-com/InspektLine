@@ -48,9 +48,10 @@ class DetectionSettings(BaseSettingsSection):
         )
         self.main_layout.addWidget(self.num_classes_input)
 
-        self.add_field_label("Model Input Resolution", top_margin=10)
+        self.add_field_label("Model Input Resolution (0 = auto)", top_margin=10)
 
-        self.model_resolution_input = QLineEdit("560")
+        self.model_resolution_input = QLineEdit("0")
+        self.model_resolution_input.setPlaceholderText("0 = use model default")
         self.model_resolution_input.setStyleSheet(StyleSheets.get_input_style())
         self.model_resolution_input.setFixedHeight(50)
         self.model_resolution_input.textChanged.connect(

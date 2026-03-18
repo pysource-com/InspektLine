@@ -143,12 +143,19 @@ class InspectionService:
         if class_names:
             num_classes = len(class_names)
 
+        # Only override resolution when the user explicitly changed it
+        # from the model's own default (0 = use model default).
+        resolution = det_settings.model_resolution
+        variant = det_settings.model_variant
+        default_res = RFDETRDetector.DEFAULT_RESOLUTION.get(variant, 0)
+        use_resolution = resolution if (resolution and resolution != default_res) else None
+
         return RFDETRDetector(
             checkpoint_path=checkpoint_path,
             class_names=class_names,
             num_classes=num_classes,
-            model_variant=det_settings.model_variant,
-            resolution=det_settings.model_resolution,
+            model_variant=variant,
+            resolution=use_resolution,
         )
 
     @staticmethod
@@ -221,6 +228,9 @@ class InspectionService:
         interval = _parse_frequency_seconds(
             self._settings.detection.detection_frequency
         )
+        consecutive_errors = 0
+        max_logged_errors = 3  # stop spamming after this many identical failures
+
         while self._running:
             if self._detector is None:
                 time.sleep(interval)
@@ -239,8 +249,16 @@ class InspectionService:
                 results = self._run_inference(frame)
                 with self._results_lock:
                     self._latest_detections = results
+                consecutive_errors = 0  # reset on success
             except Exception as exc:
-                print(f"[InspectionService] Inference error: {exc}")
+                consecutive_errors += 1
+                if consecutive_errors <= max_logged_errors:
+                    print(f"[InspectionService] Inference error: {exc}")
+                if consecutive_errors == max_logged_errors:
+                    print(
+                        "[InspectionService] Suppressing further identical errors. "
+                        "Fix the issue and restart inspection."
+                    )
 
             time.sleep(interval)
 

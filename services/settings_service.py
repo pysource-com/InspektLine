@@ -34,7 +34,7 @@ class DetectionSettings:
     task_type: str = "classification"       # "classification" | "detection" | "segmentation"
     model_variant: str = ""                 # e.g. "RF-DETR Base", "RF-DETRSeg Large", ...
     num_classes: int = 1
-    model_resolution: int = 560
+    model_resolution: int = 0              # 0 = use model's native default
 
 
 @dataclass

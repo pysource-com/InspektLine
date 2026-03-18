@@ -579,7 +579,7 @@ class HomePage(QWidget):
                 settings_svc.detection.task_type = task_type
                 if task_type != "classification":
                     settings_svc.detection.model_variant = (
-                        self.model_variant_combo.currentText()
+                        self.model_variant_combo.currentData()
                     )
 
             success = self.parent_window.inspection_service.load_model(model_path)
@@ -588,7 +588,7 @@ class HomePage(QWidget):
                 if task_type == "classification":
                     tag = "Classifier"
                 else:
-                    tag = self.model_variant_combo.currentText()
+                    tag = self.model_variant_combo.currentData()
                 self.model_path_label.setText(model_path)
                 self.model_status.setText(f"{tag}: {short_name}")
                 self.model_status.setStyleSheet(
@@ -621,9 +621,15 @@ class HomePage(QWidget):
         self.model_variant_combo.clear()
 
         if index == 1:  # Detection
-            self.model_variant_combo.addItems(RFDETRDetector.DETECTION_MODELS)
+            variants = RFDETRDetector.DETECTION_MODELS
         elif index == 2:  # Segmentation
-            self.model_variant_combo.addItems(RFDETRDetector.SEGMENTATION_MODELS)
+            variants = RFDETRDetector.SEGMENTATION_MODELS
+        else:
+            variants = []
+
+        for v in variants:
+            res = RFDETRDetector.DEFAULT_RESOLUTION.get(v, "?")
+            self.model_variant_combo.addItem(f"{v}  ({res}px)", v)
 
         self.model_variant_combo.blockSignals(False)
 

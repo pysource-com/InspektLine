@@ -48,8 +48,9 @@ class RFDETRDetector:
     model_variant : str
         Full model variant name, e.g. ``"RF-DETR Base"``, ``"RF-DETRSeg Large"``.
         See :data:`MODEL_REGISTRY` for supported values.
-    resolution : int
-        Input resolution for the model (default 560).
+    resolution : int | None
+        Input resolution override.  When *None* (default) the model's
+        own default resolution is used — this is the safest option.
     device : str | None
         ``"cuda"`` / ``"cpu"`` / *None* (auto-select).
     """
@@ -71,6 +72,21 @@ class RFDETRDetector:
         "RF-DETRSeg 2XLarge":   "RFDETRSeg2XLarge",
     }
 
+    # Each variant's native default resolution (queried from rfdetr configs).
+    DEFAULT_RESOLUTION = {
+        "RF-DETR Nano":       384,
+        "RF-DETR Small":      512,
+        "RF-DETR Medium":     576,
+        "RF-DETR Base":       560,
+        "RF-DETR Large":      704,
+        "RF-DETRSeg Nano":    312,
+        "RF-DETRSeg Small":   384,
+        "RF-DETRSeg Medium":  432,
+        "RF-DETRSeg Large":   504,
+        "RF-DETRSeg XLarge":  624,
+        "RF-DETRSeg 2XLarge": 768,
+    }
+
     DETECTION_MODELS = [
         "RF-DETR Nano", "RF-DETR Small", "RF-DETR Medium",
         "RF-DETR Base", "RF-DETR Large",
@@ -87,7 +103,7 @@ class RFDETRDetector:
         class_names: Optional[List[str]] = None,
         num_classes: int = 1,
         model_variant: str = "RF-DETR Base",
-        resolution: int = 560,
+        resolution: Optional[int] = None,
         device: Optional[str] = None,
     ) -> None:
         if not os.path.isfile(checkpoint_path):
@@ -96,7 +112,6 @@ class RFDETRDetector:
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         self.class_names = class_names
         self.num_classes = num_classes
-        self.resolution = resolution
         self.model_variant = model_variant
 
         # Resolve the rfdetr class from the variant name
@@ -110,11 +125,17 @@ class RFDETRDetector:
         import rfdetr
         ModelCls = getattr(rfdetr, cls_name)
 
-        self._model = ModelCls(
+        # Build kwargs — only override resolution when the caller
+        # explicitly provides one (otherwise the model picks its own).
+        model_kwargs = dict(
             pretrain_weights=checkpoint_path,
             num_classes=num_classes,
-            resolution=resolution,
         )
+        if resolution is not None:
+            model_kwargs["resolution"] = resolution
+
+        self._model = ModelCls(**model_kwargs)
+        self.resolution = self._model.model_config.resolution
 
         # Build default class name map if not provided
         if self.class_names is None:
