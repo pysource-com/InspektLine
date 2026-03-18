@@ -135,6 +135,7 @@ class RFDETRDetector:
             model_kwargs["resolution"] = resolution
 
         self._model = ModelCls(**model_kwargs)
+        self._model.optimize_for_inference()
         self.resolution = self._model.model_config.resolution
 
         # Build default class name map if not provided
