@@ -1,21 +1,15 @@
 """Main window for InspektLine GUI — thin orchestrator over services."""
 
 from PySide6.QtWidgets import QMainWindow, QVBoxLayout, QDialog
-from PySide6.QtCore import Qt, Signal, QObject
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QIcon
 
 from services.settings_service import SettingsService
 from services.camera_service import CameraService
 from services.inspection_service import InspectionService
 from services.dataset_service import DatasetService
-from detector.annotate import draw_detections
 from gui.pages import SettingsPage, HomePage
 from gui.styles import DarkTheme
-
-
-class FrameBridge(QObject):
-    """Bridge to marshal frames from background thread to Qt main thread."""
-    frame_ready = Signal(object)  # numpy ndarray
 
 
 class PageDialog(QDialog):
@@ -57,9 +51,9 @@ class MainWindow(QMainWindow):
         self.inspection_service = inspection_service
         self.dataset_service = dataset_service
 
-        # --- frame bridge (background thread -> main thread) ---
-        self._bridge = FrameBridge()
-        self._bridge.frame_ready.connect(self._on_new_frame, Qt.ConnectionType.QueuedConnection)
+        # --- display timer (replaces per-frame signal to avoid queue backup) ---
+        self._display_timer = QTimer(self)
+        self._display_timer.timeout.connect(self._on_display_tick)
 
         self._frame_count = 0
         self._resolution_set = False
@@ -92,48 +86,74 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.home_page)
 
     # ================================================================
-    # Camera capture (background thread)
+    # Camera capture (background thread) + display timer
     # ================================================================
 
     def _start_camera(self):
-        """Open camera and start background capture thread."""
+        """Open camera and start background capture thread + display timer."""
         self.camera_service.start(
             on_frame=self._on_frame_from_thread,
             fps=60,
         )
+        # Display timer fires at ~30 FPS — reads the latest frame and
+        # updates the UI.  This naturally drops frames when the camera
+        # produces them faster than the display can consume.
+        self._display_timer.start(33)  # ~30 FPS
 
     def _stop_camera(self):
-        """Stop background capture thread."""
+        """Stop background capture thread and display timer."""
+        self._display_timer.stop()
         self.camera_service.stop()
 
     def _on_frame_from_thread(self, frame):
-        """Called from the camera background thread — emit signal to main thread."""
-        self._bridge.frame_ready.emit(frame)
+        """Called from the camera background thread.
 
-    def _on_new_frame(self, frame):
-        """Handle a new frame on the Qt main thread."""
-        self._frame_count += 1
-
-        # Feed frame to inference thread (non-blocking)
+        Feeds the frame to the inspection service (non-blocking) and to
+        dataset collection.  Display is handled separately by the QTimer
+        to avoid signal-queue backup.
+        """
+        # Feed frame to inference thread
         if self.inspection_service.is_running:
             self.inspection_service.submit_frame(frame)
 
-        # Read latest detections and draw overlay
-        display_frame = frame
+        # Forward frame to dataset collection (if active)
+        if self.dataset_service.is_collecting:
+            self.dataset_service.process_frame(frame)
+
+    def _on_display_tick(self):
+        """Called by QTimer on the Qt main thread — update the display.
+
+        Reads the latest frame from the camera service (or the latest
+        pre-annotated frame from the inspection service) and pushes it
+        to the video label.  Because this is timer-driven, frames that
+        arrive faster than the display rate are naturally skipped.
+        """
+        # Determine which frame to show
+        display_frame = None
         detections = []
+
         if self.inspection_service.is_running and self.inspection_service.has_model:
+            # Use the pre-annotated frame produced by the inference thread
+            annotated = self.inspection_service.latest_annotated_frame
+            if annotated is not None:
+                display_frame = annotated
             detections = self.inspection_service.latest_detections
-            if detections:
-                draw_masks = self.inspection_service.task_type == "segmentation"
-                display_frame = draw_detections(
-                    frame, detections, draw_masks=draw_masks
-                )
+
+        # Fall back to the raw camera frame when inspection is off or
+        # no annotated frame is available yet.
+        if display_frame is None:
+            display_frame = self.camera_service.current_frame
+
+        if display_frame is None:
+            return  # camera not producing frames yet
+
+        self._frame_count += 1
 
         # Push frame to home page video label
         if hasattr(self.home_page, "video_label") and self.home_page.video_label:
             self.home_page.video_label.display_frame(display_frame)
             if not self._resolution_set and hasattr(self.home_page, "resolution_value"):
-                h, w = frame.shape[:2]
+                h, w = display_frame.shape[:2]
                 self.home_page.resolution_value.setText(f"{w}×{h}")
                 self._resolution_set = True
 
@@ -146,10 +166,8 @@ class MainWindow(QMainWindow):
         if detections and hasattr(self.home_page, "update_detection_count"):
             self.home_page.update_detection_count(len(detections))
 
-        # Forward frame to dataset collection (if active)
+        # Update dataset collection status
         if self.dataset_service.is_collecting:
-            self.dataset_service.process_frame(frame)
-            # Update saved-count on home page
             if hasattr(self.home_page, "update_collection_status"):
                 self.home_page.update_collection_status(
                     self.dataset_service.frames_saved

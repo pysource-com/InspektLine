@@ -146,6 +146,7 @@ class RFDETRDetector:
     # Public API
     # ------------------------------------------------------------------
 
+    @torch.inference_mode()
     def predict(
         self,
         frame: np.ndarray,

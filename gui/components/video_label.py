@@ -47,8 +47,9 @@ class VideoLabel(QLabel):
 
         self._update_fps()
 
-        # Convert BGR to RGB
-        frame_rgb = frame[..., ::-1].copy()
+        import cv2
+        # Convert BGR → RGB (cv2 is faster than slice+copy)
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
         # Get frame dimensions
         height, width, channels = frame_rgb.shape
@@ -64,11 +65,13 @@ class VideoLabel(QLabel):
         )
 
         # Scale to fit while maintaining aspect ratio
+        # FastTransformation (nearest-neighbour) is significantly faster
+        # than SmoothTransformation (bilinear) — critical at 30 FPS.
         pixmap = QPixmap.fromImage(q_image)
         scaled_pixmap = pixmap.scaled(
             self.size(),
             Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation
+            Qt.TransformationMode.FastTransformation
         )
 
         # Display the frame

@@ -18,25 +18,6 @@ from services.camera_service import CameraService
 from services.settings_service import SettingsService
 
 
-def _parse_frequency_seconds(freq_str: str) -> float:
-    """Convert a human-readable frequency string to seconds.
-
-    Examples: ``"Every 1.5 seconds"`` → 1.5, ``"Every 500 ms"`` → 0.5
-    Falls back to 1.5 seconds on parse failure.
-    """
-    try:
-        m = re.search(r"([\d.]+)\s*(s|sec|second|ms|millisecond)", freq_str, re.IGNORECASE)
-        if m:
-            value = float(m.group(1))
-            unit = m.group(2).lower()
-            if unit.startswith("ms") or unit.startswith("milli"):
-                return value / 1000.0
-            return value
-    except Exception:
-        pass
-    return 1.5
-
-
 class InspectionService:
     """Orchestrates real-time inspection using camera frames + detector.
 
@@ -64,10 +45,15 @@ class InspectionService:
         # Thread-safe frame hand-off (main → inference thread)
         self._frame_lock = threading.Lock()
         self._latest_frame: Optional[np.ndarray] = None
+        self._frame_event = threading.Event()  # wakes inference thread on new frame
 
         # Thread-safe results (inference thread → main)
         self._results_lock = threading.Lock()
         self._latest_detections: List[Dict[str, Any]] = []
+
+        # Pre-annotated frame (inference thread → main, avoids annotation on UI thread)
+        self._annotated_lock = threading.Lock()
+        self._latest_annotated_frame: Optional[np.ndarray] = None
 
         # Background thread
         self._running = False
@@ -97,6 +83,16 @@ class InspectionService:
         """Return the most recent detection results (thread-safe read)."""
         with self._results_lock:
             return list(self._latest_detections)
+
+    @property
+    def latest_annotated_frame(self) -> Optional[np.ndarray]:
+        """Return the latest pre-annotated frame (thread-safe read).
+
+        The inference thread draws detection overlays after each inference
+        pass so the display thread can use this directly without re-drawing.
+        """
+        with self._annotated_lock:
+            return self._latest_annotated_frame
 
     # ---- model loading -----------------------------------------------------
 
@@ -185,6 +181,7 @@ class InspectionService:
         """
         with self._frame_lock:
             self._latest_frame = frame
+        self._frame_event.set()  # wake the inference thread immediately
 
     # ---- single-shot inference (backward compat) ---------------------------
 
@@ -208,6 +205,7 @@ class InspectionService:
         if self._running:
             return
         self._running = True
+        self._frame_event.clear()
         self._thread = threading.Thread(
             target=self._inference_loop, daemon=True
         )
@@ -216,24 +214,34 @@ class InspectionService:
     def stop(self) -> None:
         """Stop the background inference thread."""
         self._running = False
+        self._frame_event.set()  # wake thread so it can exit promptly
         if self._thread is not None:
             self._thread.join(timeout=3.0)
             self._thread = None
         # Clear stale results
         with self._results_lock:
             self._latest_detections = []
+        with self._annotated_lock:
+            self._latest_annotated_frame = None
 
     def _inference_loop(self) -> None:
-        """Continuously grab the latest frame, run inference, store results."""
-        interval = _parse_frequency_seconds(
-            self._settings.detection.detection_frequency
-        )
+        """Continuously grab the latest frame, run inference, store results.
+
+        Uses an Event to wake up immediately when a new frame is
+        submitted instead of polling with ``time.sleep()``.
+        """
+        from detector.annotate import draw_detections
+
         consecutive_errors = 0
-        max_logged_errors = 3  # stop spamming after this many identical failures
+        max_logged_errors = 3
 
         while self._running:
-            if self._detector is None:
-                time.sleep(interval)
+            # Block efficiently until a new frame arrives (or timeout to
+            # re-check the running flag).
+            self._frame_event.wait(timeout=0.5)
+            self._frame_event.clear()
+
+            if not self._running or self._detector is None:
                 continue
 
             # Grab latest frame
@@ -242,13 +250,23 @@ class InspectionService:
                 self._latest_frame = None  # mark consumed
 
             if frame is None:
-                time.sleep(0.01)  # nothing to process
                 continue
 
             try:
                 results = self._run_inference(frame)
+
+                # Pre-annotate the frame so the UI thread can display it
+                # directly without doing expensive drawing work.
+                draw_masks = self._task_type == "segmentation"
+                annotated = draw_detections(
+                    frame, results, draw_masks=draw_masks
+                ) if results else frame
+
                 with self._results_lock:
                     self._latest_detections = results
+                with self._annotated_lock:
+                    self._latest_annotated_frame = annotated
+
                 consecutive_errors = 0  # reset on success
             except Exception as exc:
                 consecutive_errors += 1
@@ -259,8 +277,6 @@ class InspectionService:
                         "[InspectionService] Suppressing further identical errors. "
                         "Fix the issue and restart inspection."
                     )
-
-            time.sleep(interval)
 
     # ---- internal ----------------------------------------------------------
 
