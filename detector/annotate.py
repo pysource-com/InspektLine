@@ -95,7 +95,11 @@ def draw_detections(
         cv2.rectangle(annotated, (x1, y1), (x2, y2), colour, box_thickness)
 
         # --- label background + text ---
-        text = f"{label} {score:.0%}"
+        tracker_id = det.get("tracker_id")
+        if tracker_id is not None and tracker_id >= 0:
+            text = f"{label} #{tracker_id} {score:.0%}"
+        else:
+            text = f"{label} {score:.0%}"
         (tw, th), baseline = cv2.getTextSize(
             text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, font_thickness
         )
@@ -117,4 +121,79 @@ def draw_detections(
         )
 
     return annotated
+
+
+def draw_roi_polygon(
+    frame: np.ndarray,
+    polygon: np.ndarray,
+    zone_count: int = 0,
+    total_entered: int = 0,
+    line_colour: tuple = (0, 255, 255),
+    fill_alpha: float = 0.15,
+    thickness: int = 2,
+) -> np.ndarray:
+    """Draw a polygon ROI zone with counters onto a frame.
+
+    Parameters
+    ----------
+    frame : np.ndarray
+        BGR image (H, W, 3).  Modified **in-place** for performance
+        (caller typically already has a copy from ``draw_detections``).
+    polygon : np.ndarray
+        Vertices as an (N, 2) int array.
+    zone_count : int
+        Objects currently inside the zone.
+    total_entered : int
+        Total unique objects that have entered the zone.
+    line_colour : tuple
+        BGR colour for the polygon outline.
+    fill_alpha : float
+        Opacity of the zone fill.
+    thickness : int
+        Line thickness for the polygon border.
+
+    Returns
+    -------
+    np.ndarray
+        The frame with the polygon overlay drawn.
+    """
+    pts = polygon.reshape((-1, 1, 2))
+
+    # Semi-transparent fill
+    overlay = frame.copy()
+    cv2.fillPoly(overlay, [polygon], line_colour)
+    cv2.addWeighted(overlay, fill_alpha, frame, 1 - fill_alpha, 0, frame)
+
+    # Polygon outline
+    cv2.polylines(frame, [pts], isClosed=True, color=line_colour, thickness=thickness)
+
+    # Counter badge — top-left corner of the polygon bounding box
+    x_min, y_min = polygon.min(axis=0)
+    badge_text = f"In zone: {zone_count}  |  Total: {total_entered}"
+    (tw, th), baseline = cv2.getTextSize(
+        badge_text, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2
+    )
+    badge_y = max(y_min - 10, th + 6)
+    badge_x = max(x_min, 0)
+
+    cv2.rectangle(
+        frame,
+        (badge_x, badge_y - th - 6),
+        (badge_x + tw + 12, badge_y + 4),
+        (0, 0, 0),
+        -1,
+    )
+    cv2.putText(
+        frame,
+        badge_text,
+        (badge_x + 6, badge_y - 2),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.6,
+        line_colour,
+        2,
+        cv2.LINE_AA,
+    )
+
+    return frame
+
 

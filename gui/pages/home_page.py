@@ -42,6 +42,12 @@ class HomePage(QWidget):
         self.collection_status_label = None
         self._output_dir = "storage/dataset"
 
+        # ROI / tracking UI references
+        self.draw_roi_btn = None
+        self.clear_roi_btn = None
+        self.reset_count_btn = None
+        self.zone_count_label = None
+
         self.init_ui()
 
     def init_ui(self):
@@ -365,6 +371,75 @@ class HomePage(QWidget):
         self.detection_count_label.setVisible(False)
         layout.addWidget(self.detection_count_label)
 
+        # --- ROI Tracking section ---
+        roi_sep = QFrame()
+        roi_sep.setFrameShape(QFrame.Shape.HLine)
+        roi_sep.setStyleSheet(
+            f"color: {DarkTheme.BORDER_PRIMARY}; border: none; "
+            f"background: {DarkTheme.BORDER_PRIMARY}; max-height: 1px;"
+        )
+        layout.addWidget(roi_sep)
+
+        roi_title = QLabel("ROI Zone Counting")
+        roi_title.setStyleSheet(
+            f"color: {DarkTheme.TEXT_PRIMARY}; font-size: 14px; "
+            f"font-weight: bold; border: none;"
+        )
+        layout.addWidget(roi_title)
+
+        roi_btn_style = f"""
+            QPushButton {{
+                background-color: {DarkTheme.BG_INPUT};
+                color: {DarkTheme.TEXT_PRIMARY};
+                border: 1px solid {DarkTheme.BORDER_PRIMARY};
+                border-radius: 6px;
+                padding: 0 14px;
+                font-size: 13px;
+            }}
+            QPushButton:hover {{
+                background-color: {DarkTheme.BG_HOVER};
+                border-color: {DarkTheme.BORDER_SECONDARY};
+            }}
+            QPushButton:pressed {{
+                background-color: {DarkTheme.BG_PRESSED};
+            }}
+        """
+
+        roi_buttons_row = QHBoxLayout()
+        roi_buttons_row.setSpacing(8)
+
+        self.draw_roi_btn = QPushButton("✏  Draw ROI")
+        self.draw_roi_btn.setFixedHeight(36)
+        self.draw_roi_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.draw_roi_btn.setStyleSheet(roi_btn_style)
+        self.draw_roi_btn.clicked.connect(self._toggle_draw_roi)
+        roi_buttons_row.addWidget(self.draw_roi_btn)
+
+        self.clear_roi_btn = QPushButton("✖  Clear")
+        self.clear_roi_btn.setFixedHeight(36)
+        self.clear_roi_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.clear_roi_btn.setStyleSheet(roi_btn_style)
+        self.clear_roi_btn.setEnabled(False)
+        self.clear_roi_btn.clicked.connect(self._clear_roi)
+        roi_buttons_row.addWidget(self.clear_roi_btn)
+
+        layout.addLayout(roi_buttons_row)
+
+        self.reset_count_btn = QPushButton("↺  Reset Count")
+        self.reset_count_btn.setFixedHeight(36)
+        self.reset_count_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.reset_count_btn.setStyleSheet(roi_btn_style)
+        self.reset_count_btn.setEnabled(False)
+        self.reset_count_btn.clicked.connect(self._reset_roi_counts)
+        layout.addWidget(self.reset_count_btn)
+
+        self.zone_count_label = QLabel("Draw a polygon on the video to start counting")
+        self.zone_count_label.setWordWrap(True)
+        self.zone_count_label.setStyleSheet(
+            f"color: {DarkTheme.TEXT_SECONDARY}; font-size: 12px; border: none;"
+        )
+        layout.addWidget(self.zone_count_label)
+
         # Separator
         sep2 = QFrame()
         sep2.setFrameShape(QFrame.Shape.HLine)
@@ -663,6 +738,81 @@ class HomePage(QWidget):
             if svc.task_type in ("detection", "segmentation"):
                 self.detection_count_label.setVisible(True)
                 self.detection_count_label.setText("Detections: 0")
+
+    # ================================================================
+    # ROI Zone Counting
+    # ================================================================
+
+    def _toggle_draw_roi(self):
+        """Enter or cancel ROI polygon drawing mode."""
+        if self.video_label is None:
+            return
+
+        if self.video_label.draw_roi_mode:
+            # Cancel drawing
+            self.video_label.draw_roi_mode = False
+            self.draw_roi_btn.setText("✏  Draw ROI")
+        else:
+            # Enter drawing mode
+            self.video_label.draw_roi_mode = True
+            self.draw_roi_btn.setText("✖  Cancel Drawing")
+            self.zone_count_label.setText(
+                "Left-click to add vertices. Right-click or double-click to close."
+            )
+            self.zone_count_label.setStyleSheet(
+                f"color: {DarkTheme.WARNING}; font-size: 12px; border: none;"
+            )
+
+            # Connect signal if not yet connected
+            try:
+                self.video_label.roi_polygon_drawn.disconnect(self._on_roi_polygon_drawn)
+            except RuntimeError:
+                pass
+            self.video_label.roi_polygon_drawn.connect(self._on_roi_polygon_drawn)
+
+    def _on_roi_polygon_drawn(self, points):
+        """Handle the polygon drawn by the user on the video label."""
+        if not self.parent_window or not hasattr(self.parent_window, "inspection_service"):
+            return
+
+        svc = self.parent_window.inspection_service
+        svc.set_roi_polygon(points)
+
+        self.draw_roi_btn.setText("✏  Draw ROI")
+        self.clear_roi_btn.setEnabled(True)
+        self.reset_count_btn.setEnabled(True)
+        n = len(points)
+        self.zone_count_label.setText(f"ROI set ({n} vertices) — In zone: 0  |  Total: 0")
+        self.zone_count_label.setStyleSheet(
+            f"color: {DarkTheme.SUCCESS}; font-size: 12px; border: none;"
+        )
+
+    def _clear_roi(self):
+        """Remove the ROI polygon."""
+        if self.parent_window and hasattr(self.parent_window, "inspection_service"):
+            self.parent_window.inspection_service.clear_roi_polygon()
+
+        self.clear_roi_btn.setEnabled(False)
+        self.reset_count_btn.setEnabled(False)
+        self.zone_count_label.setText("Draw a polygon on the video to start counting")
+        self.zone_count_label.setStyleSheet(
+            f"color: {DarkTheme.TEXT_SECONDARY}; font-size: 12px; border: none;"
+        )
+
+    def _reset_roi_counts(self):
+        """Reset zone counters without removing the polygon."""
+        if self.parent_window and hasattr(self.parent_window, "inspection_service"):
+            self.parent_window.inspection_service.reset_roi_counts()
+
+    def update_zone_counts(self, zone_count: int, total_entered: int):
+        """Called from MainWindow to update the ROI zone counter display."""
+        if self.zone_count_label is not None:
+            self.zone_count_label.setText(
+                f"In zone: {zone_count}  |  Total entered: {total_entered}"
+            )
+            self.zone_count_label.setStyleSheet(
+                f"color: {DarkTheme.SUCCESS}; font-size: 12px; border: none;"
+            )
 
     # ================================================================
     # Dataset Collection

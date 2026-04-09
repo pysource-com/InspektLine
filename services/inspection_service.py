@@ -10,12 +10,13 @@ import re
 import json
 import threading
 import time
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 
 import numpy as np
 
 from services.camera_service import CameraService
 from services.settings_service import SettingsService
+from detector.tracker import ObjectTracker
 
 
 class InspectionService:
@@ -59,6 +60,11 @@ class InspectionService:
         self._running = False
         self._thread: Optional[threading.Thread] = None
 
+        # Object tracker (ByteTrack + polygon ROI zone)
+        self._tracker = ObjectTracker()
+        self._tracker_lock = threading.Lock()
+        self._tracking_enabled = False
+
     # ---- properties --------------------------------------------------------
 
     @property
@@ -93,6 +99,57 @@ class InspectionService:
         """
         with self._annotated_lock:
             return self._latest_annotated_frame
+
+    # ---- tracking / ROI properties -----------------------------------------
+
+    @property
+    def tracking_enabled(self) -> bool:
+        return self._tracking_enabled
+
+    @tracking_enabled.setter
+    def tracking_enabled(self, value: bool) -> None:
+        self._tracking_enabled = value
+        if not value:
+            with self._tracker_lock:
+                self._tracker.reset()
+
+    @property
+    def zone_count(self) -> int:
+        """Objects currently inside the ROI polygon."""
+        with self._tracker_lock:
+            return self._tracker.zone_count
+
+    @property
+    def total_entered(self) -> int:
+        """Total unique objects that have entered the ROI polygon."""
+        with self._tracker_lock:
+            return self._tracker.total_entered
+
+    @property
+    def has_roi_polygon(self) -> bool:
+        with self._tracker_lock:
+            return self._tracker.has_polygon
+
+    @property
+    def roi_polygon(self) -> Optional[np.ndarray]:
+        with self._tracker_lock:
+            return self._tracker.polygon
+
+    def set_roi_polygon(self, points: List[Tuple[int, int]]) -> None:
+        """Set the ROI polygon (thread-safe). Points in frame coords."""
+        with self._tracker_lock:
+            self._tracker.set_polygon(points)
+            self._tracking_enabled = True
+
+    def clear_roi_polygon(self) -> None:
+        """Remove the ROI polygon and reset counters."""
+        with self._tracker_lock:
+            self._tracker.clear_polygon()
+
+    def reset_roi_counts(self) -> None:
+        """Reset zone counters without removing the polygon."""
+        with self._tracker_lock:
+            self._tracker.reset()
 
     # ---- model loading -----------------------------------------------------
 
@@ -230,7 +287,7 @@ class InspectionService:
         Uses an Event to wake up immediately when a new frame is
         submitted instead of polling with ``time.sleep()``.
         """
-        from detector.annotate import draw_detections
+        from detector.annotate import draw_detections, draw_roi_polygon
 
         consecutive_errors = 0
         max_logged_errors = 3
@@ -255,12 +312,27 @@ class InspectionService:
             try:
                 results = self._run_inference(frame)
 
+                # Run object tracking if enabled (detection / segmentation)
+                if self._tracking_enabled and self._task_type in ("detection", "segmentation"):
+                    with self._tracker_lock:
+                        results = self._tracker.update(results)
+
                 # Pre-annotate the frame so the UI thread can display it
                 # directly without doing expensive drawing work.
                 draw_masks = self._task_type == "segmentation"
                 annotated = draw_detections(
                     frame, results, draw_masks=draw_masks
-                ) if results else frame
+                ) if results else frame.copy()
+
+                # Draw ROI polygon overlay
+                with self._tracker_lock:
+                    if self._tracker.has_polygon:
+                        annotated = draw_roi_polygon(
+                            annotated,
+                            self._tracker.polygon,
+                            zone_count=self._tracker.zone_count,
+                            total_entered=self._tracker.total_entered,
+                        )
 
                 with self._results_lock:
                     self._latest_detections = results

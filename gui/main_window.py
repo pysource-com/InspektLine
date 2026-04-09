@@ -166,6 +166,14 @@ class MainWindow(QMainWindow):
         if detections and hasattr(self.home_page, "update_detection_count"):
             self.home_page.update_detection_count(len(detections))
 
+        # Update ROI zone count on home page
+        if self.inspection_service.has_roi_polygon:
+            if hasattr(self.home_page, "update_zone_counts"):
+                self.home_page.update_zone_counts(
+                    self.inspection_service.zone_count,
+                    self.inspection_service.total_entered,
+                )
+
         # Update dataset collection status
         if self.dataset_service.is_collecting:
             if hasattr(self.home_page, "update_collection_status"):
