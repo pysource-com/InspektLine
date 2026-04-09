@@ -181,23 +181,33 @@ class InspectionService:
             return dict(self._classification_log)
 
     def load_classifier(self, model_path: str) -> bool:
-        """Load a secondary ConvNeXt classifier for two-stage ROI inspection.
+        """Load a secondary classifier for two-stage ROI inspection.
 
         This classifier runs on objects that enter the ROI polygon:
-        the segmentation model detects + segments, and the ConvNeXt
-        classifier categorises each cropped object (e.g. good / defective).
+        the segmentation model detects + segments, and the classifier
+        categorises each cropped object (e.g. good / defective).
 
         Parameters
         ----------
         model_path : str
-            Path to a local HuggingFace model directory containing a
-            fine-tuned ConvNeXt (or compatible) image classification model.
+            Path to either:
+            - A ``.pth`` checkpoint (loaded via *timm*, e.g. ConvNeXt)
+            - A local HuggingFace model directory
 
         Returns True on success.
         """
         try:
-            from detector.classifier import TransformerImageClassifier
-            classifier = TransformerImageClassifier(model_name=model_path)
+            if model_path.lower().endswith(".pth"):
+                from detector.classifier import TimmImageClassifier
+                class_names = self._discover_class_names(model_path)
+                classifier = TimmImageClassifier(
+                    checkpoint_path=model_path,
+                    class_names=class_names,
+                )
+            else:
+                from detector.classifier import TransformerImageClassifier
+                classifier = TransformerImageClassifier(model_name=model_path)
+
             with self._classifier_lock:
                 self._classifier = classifier
             print(f"[InspectionService] Classifier loaded: {model_path}")

@@ -1,5 +1,6 @@
 # Detector
 transformers==4.57.1
+timm
 rfdetr==1.5.2
 albumentations==1.4.24
 albucore==0.0.23

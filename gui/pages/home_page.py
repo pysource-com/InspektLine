@@ -921,9 +921,12 @@ class HomePage(QWidget):
     # ================================================================
 
     def _load_classifier(self):
-        """Open file dialog to select a ConvNeXt classifier model directory."""
-        model_path = QFileDialog.getExistingDirectory(
-            self, "Select ConvNeXt Classifier Directory", "",
+        """Open file dialog to select a ConvNeXt classifier (.pth or directory)."""
+        model_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select Classifier Model (.pth checkpoint)",
+            "",
+            "PyTorch Checkpoint (*.pth);;All Files (*)",
         )
         if not model_path:
             return

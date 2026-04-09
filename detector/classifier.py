@@ -1,8 +1,192 @@
+import os
+import json
 import torch
 from typing import List, Union, Optional
 from PIL import Image
 import numpy as np
 from transformers import AutoImageProcessor, AutoModelForImageClassification
+
+
+class TimmImageClassifier:
+    """Classifier for timm .pth checkpoints (e.g. ConvNeXt fine-tuned weights).
+
+    Loads a PyTorch Image Models (timm) checkpoint and runs inference
+    with the same ``predict()`` API as ``TransformerImageClassifier``.
+    """
+
+    # Map of architecture families to common timm model names.
+    # Used for auto-detection from state-dict key patterns.
+    _ARCH_HINTS = {
+        "convnext": "convnext_tiny",
+        "resnet": "resnet50",
+        "efficientnet": "efficientnet_b0",
+        "vit": "vit_base_patch16_224",
+    }
+
+    def __init__(
+        self,
+        checkpoint_path: str,
+        model_name: Optional[str] = None,
+        class_names: Optional[List[str]] = None,
+        device: Optional[str] = None,
+    ) -> None:
+        import timm
+        from timm.data import resolve_data_config
+        from timm.data.transforms_factory import create_transform
+
+        self.model_name = checkpoint_path  # exposed for external code
+        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+
+        # Load raw checkpoint
+        checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+
+        # Handle different save formats ({state_dict: ...}, {model: ...}, or plain dict)
+        if isinstance(checkpoint, dict) and "state_dict" in checkpoint:
+            state_dict = checkpoint["state_dict"]
+            model_name = model_name or checkpoint.get("arch") or checkpoint.get("model_name")
+        elif isinstance(checkpoint, dict) and "model" in checkpoint:
+            state_dict = checkpoint["model"]
+            model_name = model_name or checkpoint.get("arch") or checkpoint.get("model_name")
+        else:
+            state_dict = checkpoint
+
+        # Try to read model_name from a model_config.json next to the .pth
+        if model_name is None:
+            model_name = self._read_model_config(checkpoint_path)
+
+        # Auto-detect architecture from state-dict keys as last resort
+        if model_name is None:
+            model_name = self._guess_arch(state_dict)
+
+        # Detect num_classes from classifier head weights
+        num_classes = self._detect_num_classes(state_dict)
+
+        # Build the model and load weights
+        self.model = timm.create_model(model_name, pretrained=False, num_classes=num_classes)
+        self.model.load_state_dict(state_dict, strict=False)
+        self.model.to(self.device)
+        self.model.eval()
+
+        # Build data transforms from the model's pretrained config
+        data_config = resolve_data_config(self.model.pretrained_cfg)
+        self.transform = create_transform(**data_config, is_training=False)
+
+        # Class labels
+        if class_names is None:
+            class_names = self._discover_class_names(checkpoint_path)
+
+        if class_names:
+            self.id2label = {i: name for i, name in enumerate(class_names)}
+        else:
+            self.id2label = {i: str(i) for i in range(num_classes)}
+        self.label2id = {v: k for k, v in self.id2label.items()}
+
+        print(
+            f"[TimmImageClassifier] Loaded {model_name} "
+            f"({num_classes} classes) from {checkpoint_path}"
+        )
+
+    # ---- helpers -----------------------------------------------------------
+
+    @staticmethod
+    def _detect_num_classes(state_dict: dict) -> int:
+        """Infer the number of output classes from the classifier head."""
+        for key in ("head.fc.weight", "head.weight", "classifier.weight", "fc.weight"):
+            if key in state_dict:
+                return state_dict[key].shape[0]
+        return 2  # sensible fallback for binary classification
+
+    @staticmethod
+    def _read_model_config(checkpoint_path: str) -> Optional[str]:
+        """Read ``timm_model_name`` from a ``model_config.json`` next to the checkpoint."""
+        cfg_path = os.path.join(os.path.dirname(checkpoint_path), "model_config.json")
+        if os.path.isfile(cfg_path):
+            try:
+                with open(cfg_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                return data.get("timm_model_name") or data.get("model_name") or data.get("arch")
+            except Exception:
+                pass
+        return None
+
+    @classmethod
+    def _guess_arch(cls, state_dict: dict) -> str:
+        """Best-effort guess of the timm architecture from state-dict keys."""
+        joined = " ".join(state_dict.keys())
+        for family, default_name in cls._ARCH_HINTS.items():
+            if family in joined.lower():
+                return default_name
+        return "convnext_tiny"  # project default
+
+    @staticmethod
+    def _discover_class_names(checkpoint_path: str) -> Optional[List[str]]:
+        """Look for ``classes.txt`` or ``classes.json`` next to the checkpoint."""
+        parent = os.path.dirname(checkpoint_path)
+        txt = os.path.join(parent, "classes.txt")
+        jsn = os.path.join(parent, "classes.json")
+
+        if os.path.isfile(txt):
+            with open(txt, "r", encoding="utf-8") as f:
+                return [line.strip() for line in f if line.strip()]
+        if os.path.isfile(jsn):
+            with open(jsn, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, list):
+                    return data
+        return None
+
+    # ---- inference ---------------------------------------------------------
+
+    @torch.no_grad()
+    def predict(
+        self,
+        images: List[Union[Image.Image, np.ndarray]],
+        top_k: int = 1,
+        return_probabilities: bool = True,
+    ):
+        """Run classification on a list of images.
+
+        Returns the same format as ``TransformerImageClassifier.predict``.
+        """
+        if not images:
+            return []
+
+        tensors = []
+        for img in images:
+            if isinstance(img, np.ndarray):
+                pil_img = Image.fromarray(img)
+            elif isinstance(img, Image.Image):
+                pil_img = img
+            else:
+                raise TypeError("Each image must be a PIL.Image or NumPy array.")
+            tensors.append(self.transform(pil_img))
+
+        batch = torch.stack(tensors).to(self.device)
+        logits = self.model(batch)
+
+        if return_probabilities:
+            probs = torch.softmax(logits, dim=-1)
+        else:
+            probs = logits
+
+        top_k = min(top_k, logits.shape[-1])
+        scores, indices = torch.topk(probs, k=top_k, dim=-1)
+
+        results = []
+        for img_scores, img_indices in zip(scores, indices):
+            img_results = []
+            for score, idx in zip(img_scores, img_indices):
+                idx_int = idx.item()
+                img_results.append(
+                    {
+                        "id": idx_int,
+                        "label": self.id2label.get(idx_int, str(idx_int)),
+                        "score": float(score.item()),
+                    }
+                )
+            results.append(img_results)
+
+        return results
 
 
 class TransformerImageClassifier:
