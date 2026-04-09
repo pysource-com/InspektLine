@@ -988,6 +988,7 @@ class HomePage(QWidget):
             time_str = _time.strftime("%H:%M:%S", _time.localtime(ts)) if ts else "—"
             label = entry.get("label", "?")
             score = entry.get("score", 0)
+            cls_id = entry.get("id", -1)
 
             item_text = f"#{tid}  ·  {label} {score:.0%}  ·  {time_str}"
             item = QListWidgetItem(item_text)
@@ -996,7 +997,15 @@ class HomePage(QWidget):
             _bad_keywords = {"defect", "defective", "bad", "ng", "fail",
                              "reject", "rejected", "nok", "damaged", "faulty"}
             label_lower = label.lower()
-            if label_lower in _bad_keywords or any(k in label_lower for k in _bad_keywords):
+            is_defect = (
+                label_lower in _bad_keywords
+                or any(k in label_lower for k in _bad_keywords)
+            )
+            # Fallback for binary classifiers with numeric labels
+            if not is_defect and cls_id == 0 and label_lower in ("0", "class_0"):
+                is_defect = True
+
+            if is_defect:
                 item.setForeground(QColor(255, 80, 80))
             else:
                 item.setForeground(QColor(80, 220, 80))

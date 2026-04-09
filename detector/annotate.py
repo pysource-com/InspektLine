@@ -72,6 +72,15 @@ def draw_detections(
     np.ndarray
         Annotated copy of the frame.
     """
+    # Keywords that indicate a defective / bad classification result.
+    _bad_keywords = {"defect", "defective", "bad", "ng", "fail",
+                     "reject", "rejected", "nok", "damaged", "faulty"}
+
+    # Colour constants (BGR)
+    _CLR_DEFECT = (0, 0, 255)        # red
+    _CLR_OK = (0, 200, 0)            # green
+    _CLR_UNCLASSIFIED = (190, 190, 190)  # bright grey
+
     annotated = frame.copy()
 
     for det in detections:
@@ -81,21 +90,30 @@ def draw_detections(
         class_id = det.get("class_id", 0)
         mask = det.get("mask")
         classification = det.get("classification")  # two-stage result
+        classifier_active = det.get("classifier_active", False)
 
-        colour = _colour_for_class(class_id)
-
-        # Override colour when a classification result exists
+        # ---- decide colour ------------------------------------------------
         if classification is not None:
+            # Classified → red for defective, green for OK
             cls_label = classification["label"].lower()
-            # Heuristic: labels containing common "bad" keywords → red,
-            # otherwise → green.  Covers "defect", "defective", "bad",
-            # "ng", "fail", "reject", etc.
-            _bad_keywords = {"defect", "defective", "bad", "ng", "fail",
-                             "reject", "rejected", "nok", "damaged", "faulty"}
-            if cls_label in _bad_keywords or any(k in cls_label for k in _bad_keywords):
-                colour = (0, 0, 255)   # red (BGR)
-            else:
-                colour = (0, 200, 0)   # green (BGR)
+            cls_id = classification.get("id", -1)
+            # Check label text against known "bad" keywords
+            is_defect = (
+                cls_label in _bad_keywords
+                or any(k in cls_label for k in _bad_keywords)
+            )
+            # Fallback for binary classifiers with numeric labels:
+            # class index 0 is conventionally the defect class.
+            if not is_defect and cls_id == 0 and cls_label in ("0", "class_0"):
+                is_defect = True
+            colour = _CLR_DEFECT if is_defect else _CLR_OK
+        elif classifier_active:
+            # A classifier is loaded but this object hasn't been classified
+            # yet (inside or outside the ROI) → bright grey
+            colour = _CLR_UNCLASSIFIED
+        else:
+            # Outside zone / no ROI → default palette
+            colour = _colour_for_class(class_id)
 
         x1, y1, x2, y2 = int(box[0]), int(box[1]), int(box[2]), int(box[3])
 
@@ -111,10 +129,19 @@ def draw_detections(
 
         # --- label background + text ---
         tracker_id = det.get("tracker_id")
-        if tracker_id is not None and tracker_id >= 0:
+        if classification is not None:
+            # Show classification result prominently in the label
+            cls_lbl = classification["label"]
+            cls_score = classification["score"]
+            if tracker_id is not None and tracker_id >= 0:
+                text = f"#{tracker_id} {cls_lbl} {cls_score:.0%}"
+            else:
+                text = f"{cls_lbl} {cls_score:.0%}"
+        elif tracker_id is not None and tracker_id >= 0:
             text = f"{label} #{tracker_id} {score:.0%}"
         else:
             text = f"{label} {score:.0%}"
+
         (tw, th), baseline = cv2.getTextSize(
             text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, font_thickness
         )
@@ -123,39 +150,18 @@ def draw_detections(
         label_y2 = y1
         cv2.rectangle(annotated, (x1, label_y1), (x1 + tw + 8, label_y2), colour, -1)
 
-        # Text
+        # Text colour: white on dark backgrounds (red, grey), black on green
+        text_colour = (0, 0, 0) if colour == _CLR_OK else (255, 255, 255)
         cv2.putText(
             annotated,
             text,
             (x1 + 4, label_y2 - baseline - 2),
             cv2.FONT_HERSHEY_SIMPLEX,
             font_scale,
-            (0, 0, 0),  # black text on coloured bg
+            text_colour,
             font_thickness,
             cv2.LINE_AA,
         )
-
-        # --- classification badge (below the bounding box) ---
-        if classification is not None:
-            cls_text = f"{classification['label']} {classification['score']:.0%}"
-            (ctw, cth), c_baseline = cv2.getTextSize(
-                cls_text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, font_thickness
-            )
-            cls_y1 = y2
-            cls_y2 = min(y2 + cth + c_baseline + 6, annotated.shape[0])
-            cv2.rectangle(
-                annotated, (x1, cls_y1), (x1 + ctw + 8, cls_y2), colour, -1
-            )
-            cv2.putText(
-                annotated,
-                cls_text,
-                (x1 + 4, cls_y2 - c_baseline - 2),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                font_scale,
-                (255, 255, 255),  # white text on coloured bg
-                font_thickness,
-                cv2.LINE_AA,
-            )
 
     return annotated
 

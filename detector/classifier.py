@@ -44,9 +44,21 @@ class TimmImageClassifier:
         if isinstance(checkpoint, dict) and "state_dict" in checkpoint:
             state_dict = checkpoint["state_dict"]
             model_name = model_name or checkpoint.get("arch") or checkpoint.get("model_name")
+        elif isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
+            state_dict = checkpoint["model_state_dict"]
+            model_name = model_name or checkpoint.get("arch") or checkpoint.get("model_name")
         elif isinstance(checkpoint, dict) and "model" in checkpoint:
             state_dict = checkpoint["model"]
             model_name = model_name or checkpoint.get("arch") or checkpoint.get("model_name")
+        elif isinstance(checkpoint, dict) and "net" in checkpoint:
+            state_dict = checkpoint["net"]
+            model_name = model_name or checkpoint.get("arch") or checkpoint.get("model_name")
+        elif isinstance(checkpoint, dict) and any(
+            k.startswith(("head.", "stages.", "stem.", "features.", "classifier."))
+            for k in checkpoint.keys()
+        ):
+            # Plain state dict with recognizable layer keys
+            state_dict = checkpoint
         else:
             state_dict = checkpoint
 

@@ -472,10 +472,12 @@ class InspectionService:
         results: List[Dict[str, Any]],
         classifier,
     ) -> List[Dict[str, Any]]:
-        """Run the secondary classifier on objects that just entered the ROI.
+        """Run the secondary classifier on objects inside the ROI.
 
-        For objects that were already classified on a previous frame, the
-        cached result is re-attached so it persists on-screen.
+        Any tracked object currently inside the zone (``in_zone=True``)
+        that has not yet been classified will be classified.  Once a result
+        exists it is cached and carried forward for as long as the tracker
+        ID is alive.
 
         Parameters
         ----------
@@ -483,9 +485,9 @@ class InspectionService:
             The original BGR frame (used for cropping).
         results : list[dict]
             Tracked detection dicts (must have ``tracker_id``,
-            ``just_entered``, ``box``).
+            ``in_zone``, ``box``).
         classifier
-            A loaded ``TransformerImageClassifier`` instance.
+            A loaded classifier instance with a ``predict()`` method.
 
         Returns
         -------
@@ -499,20 +501,27 @@ class InspectionService:
             if tid < 0:
                 continue
 
-            # --- newly entered → classify now ---
-            if det.get("just_entered", False):
+            # Signal to the renderer that a classifier is active —
+            # unclassified objects should be drawn grey, not palette colour.
+            det["classifier_active"] = True
+
+            in_zone = det.get("in_zone", False)
+
+            # Check if we already have a cached result for this tracker ID
+            with self._classification_log_lock:
+                cached = self._classification_log.get(tid)
+
+            if cached is not None:
+                # Already classified → carry forward
+                det["classification"] = cached
+            elif in_zone:
+                # Inside the ROI but not yet classified → classify now
                 cls_result = self._classify_crop(frame, det["box"], classifier)
                 if cls_result is not None:
                     det["classification"] = cls_result
                     with self._classification_log_lock:
                         self._classification_log[tid] = cls_result
 
-            # --- previously classified → carry forward cached result ---
-            elif tid >= 0:
-                with self._classification_log_lock:
-                    cached = self._classification_log.get(tid)
-                if cached is not None:
-                    det["classification"] = cached
 
         return results
 
@@ -527,7 +536,7 @@ class InspectionService:
         Returns
         -------
         dict or None
-            ``{"label": str, "score": float, "timestamp": float}``
+            ``{"label": str, "score": float, "id": int, "timestamp": float}``
             on success, *None* on failure.
         """
         from detector.crop import extract_object_crop
@@ -544,6 +553,7 @@ class InspectionService:
                 return {
                     "label": top["label"],
                     "score": top["score"],
+                    "id": top.get("id", -1),
                     "timestamp": time.time(),
                 }
         except Exception as exc:
