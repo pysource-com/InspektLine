@@ -3,8 +3,10 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QFileDialog, QSizePolicy, QComboBox, QSpinBox,
+    QListWidget, QListWidgetItem, QAbstractItemView,
 )
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor
 
 from gui.components import VideoLabel
 from gui.styles.themes import DarkTheme
@@ -47,6 +49,13 @@ class HomePage(QWidget):
         self.clear_roi_btn = None
         self.reset_count_btn = None
         self.zone_count_label = None
+
+        # Two-stage classifier UI references
+        self.load_classifier_btn = None
+        self.classifier_status_label = None
+        self.inspection_log_list = None
+        self.clear_log_btn = None
+        self._classifier_section_widgets = []  # widgets to show/hide
 
         self.init_ui()
 
@@ -440,6 +449,90 @@ class HomePage(QWidget):
         )
         layout.addWidget(self.zone_count_label)
 
+        # --- Two-stage Classifier sub-section (inside ROI) ---
+        classifier_sep = QFrame()
+        classifier_sep.setFrameShape(QFrame.Shape.HLine)
+        classifier_sep.setStyleSheet(
+            f"color: {DarkTheme.BORDER_PRIMARY}; border: none; "
+            f"background: {DarkTheme.BORDER_PRIMARY}; max-height: 1px;"
+        )
+        layout.addWidget(classifier_sep)
+
+        classifier_title = QLabel("ROI Inspection")
+        classifier_title.setStyleSheet(
+            f"color: {DarkTheme.TEXT_PRIMARY}; font-size: 14px; "
+            f"font-weight: bold; border: none;"
+        )
+        layout.addWidget(classifier_title)
+
+        classifier_desc = QLabel(
+            "Load a ConvNeXt classifier to inspect objects entering the ROI zone."
+        )
+        classifier_desc.setWordWrap(True)
+        classifier_desc.setStyleSheet(
+            f"color: {DarkTheme.TEXT_SECONDARY}; font-size: 11px; border: none;"
+        )
+        layout.addWidget(classifier_desc)
+
+        self.load_classifier_btn = QPushButton("📂  Load Classifier")
+        self.load_classifier_btn.setFixedHeight(40)
+        self.load_classifier_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.load_classifier_btn.setStyleSheet(roi_btn_style)
+        self.load_classifier_btn.clicked.connect(self._load_classifier)
+        layout.addWidget(self.load_classifier_btn)
+
+        self.classifier_status_label = QLabel("No classifier loaded")
+        self.classifier_status_label.setWordWrap(True)
+        self.classifier_status_label.setStyleSheet(
+            f"color: {DarkTheme.TEXT_SECONDARY}; font-size: 11px; border: none;"
+        )
+        layout.addWidget(self.classifier_status_label)
+
+        # Inspection log list
+        log_label = QLabel("Inspection Log")
+        log_label.setStyleSheet(
+            f"color: {DarkTheme.TEXT_SECONDARY}; font-size: 12px; border: none;"
+        )
+        layout.addWidget(log_label)
+
+        self.inspection_log_list = QListWidget()
+        self.inspection_log_list.setMaximumHeight(150)
+        self.inspection_log_list.setSelectionMode(
+            QAbstractItemView.SelectionMode.NoSelection
+        )
+        self.inspection_log_list.setStyleSheet(f"""
+            QListWidget {{
+                background-color: {DarkTheme.BG_INPUT};
+                color: {DarkTheme.TEXT_PRIMARY};
+                border: 1px solid {DarkTheme.BORDER_PRIMARY};
+                border-radius: 6px;
+                font-size: 11px;
+                padding: 4px;
+            }}
+            QListWidget::item {{
+                padding: 3px 6px;
+                border: none;
+            }}
+        """)
+        layout.addWidget(self.inspection_log_list)
+
+        self.clear_log_btn = QPushButton("↺  Clear Log")
+        self.clear_log_btn.setFixedHeight(32)
+        self.clear_log_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.clear_log_btn.setStyleSheet(roi_btn_style)
+        self.clear_log_btn.clicked.connect(self._clear_classification_log)
+        layout.addWidget(self.clear_log_btn)
+
+        # Collect all two-stage classifier widgets for show/hide
+        self._classifier_section_widgets = [
+            classifier_sep, classifier_title, classifier_desc,
+            self.load_classifier_btn, self.classifier_status_label,
+            log_label, self.inspection_log_list, self.clear_log_btn,
+        ]
+        # Initially hidden — shown when task is detection/segmentation
+        for w in self._classifier_section_widgets:
+            w.setVisible(False)
+
         # Separator
         sep2 = QFrame()
         sep2.setFrameShape(QFrame.Shape.HLine)
@@ -687,6 +780,11 @@ class HomePage(QWidget):
         self.model_variant_label.setVisible(show_variant)
         self.model_variant_combo.setVisible(show_variant)
 
+        # Show/hide two-stage classifier section
+        show_classifier = index > 0  # Detection or Segmentation
+        for w in self._classifier_section_widgets:
+            w.setVisible(show_classifier)
+
         if not show_variant:
             return
 
@@ -799,6 +897,10 @@ class HomePage(QWidget):
             f"color: {DarkTheme.TEXT_SECONDARY}; font-size: 12px; border: none;"
         )
 
+        # Clear the inspection log when ROI is removed
+        if self.inspection_log_list is not None:
+            self.inspection_log_list.clear()
+
     def _reset_roi_counts(self):
         """Reset zone counters without removing the polygon."""
         if self.parent_window and hasattr(self.parent_window, "inspection_service"):
@@ -813,6 +915,90 @@ class HomePage(QWidget):
             self.zone_count_label.setStyleSheet(
                 f"color: {DarkTheme.SUCCESS}; font-size: 12px; border: none;"
             )
+
+    # ================================================================
+    # Two-Stage ROI Classification
+    # ================================================================
+
+    def _load_classifier(self):
+        """Open file dialog to select a ConvNeXt classifier model directory."""
+        model_path = QFileDialog.getExistingDirectory(
+            self, "Select ConvNeXt Classifier Directory", "",
+        )
+        if not model_path:
+            return
+
+        if not self.parent_window or not hasattr(self.parent_window, "inspection_service"):
+            return
+
+        svc = self.parent_window.inspection_service
+        success = svc.load_classifier(model_path)
+
+        if success:
+            short_name = model_path.replace("\\", "/").split("/")[-1]
+            self.classifier_status_label.setText(f"✔ {short_name}")
+            self.classifier_status_label.setStyleSheet(
+                f"color: {DarkTheme.SUCCESS}; font-size: 11px; border: none;"
+            )
+            self.load_classifier_btn.setText("📂  Change Classifier")
+        else:
+            self.classifier_status_label.setText("Failed to load classifier")
+            self.classifier_status_label.setStyleSheet(
+                f"color: {DarkTheme.ERROR}; font-size: 11px; border: none;"
+            )
+
+    def _clear_classification_log(self):
+        """Clear the inspection log display and the service-side log."""
+        if self.inspection_log_list is not None:
+            self.inspection_log_list.clear()
+        if self.parent_window and hasattr(self.parent_window, "inspection_service"):
+            self.parent_window.inspection_service.clear_classification_log()
+
+    def update_classification_log(self, log: dict):
+        """Called from MainWindow to refresh the inspection log list.
+
+        Parameters
+        ----------
+        log : dict
+            Mapping of ``tracker_id`` → ``{"label", "score", "timestamp"}``.
+        """
+        if self.inspection_log_list is None:
+            return
+
+        import time as _time
+
+        # Only append new entries (check count difference for efficiency)
+        current_count = self.inspection_log_list.count()
+        if len(log) == current_count:
+            return  # no new entries
+
+        # Rebuild the list (simple approach — log is small)
+        self.inspection_log_list.clear()
+
+        # Sort by timestamp descending (newest first)
+        sorted_entries = sorted(
+            log.items(), key=lambda kv: kv[1].get("timestamp", 0), reverse=True
+        )
+
+        for tid, entry in sorted_entries:
+            ts = entry.get("timestamp", 0)
+            time_str = _time.strftime("%H:%M:%S", _time.localtime(ts)) if ts else "—"
+            label = entry.get("label", "?")
+            score = entry.get("score", 0)
+
+            item_text = f"#{tid}  ·  {label} {score:.0%}  ·  {time_str}"
+            item = QListWidgetItem(item_text)
+
+            # Colour-code: bad keywords → red text, otherwise → green
+            _bad_keywords = {"defect", "defective", "bad", "ng", "fail",
+                             "reject", "rejected", "nok", "damaged", "faulty"}
+            label_lower = label.lower()
+            if label_lower in _bad_keywords or any(k in label_lower for k in _bad_keywords):
+                item.setForeground(QColor(255, 80, 80))
+            else:
+                item.setForeground(QColor(80, 220, 80))
+
+            self.inspection_log_list.addItem(item)
 
     # ================================================================
     # Dataset Collection

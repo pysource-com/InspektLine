@@ -80,8 +80,23 @@ def draw_detections(
         score = det["score"]
         class_id = det.get("class_id", 0)
         mask = det.get("mask")
+        classification = det.get("classification")  # two-stage result
 
         colour = _colour_for_class(class_id)
+
+        # Override colour when a classification result exists
+        if classification is not None:
+            cls_label = classification["label"].lower()
+            # Heuristic: labels containing common "bad" keywords → red,
+            # otherwise → green.  Covers "defect", "defective", "bad",
+            # "ng", "fail", "reject", etc.
+            _bad_keywords = {"defect", "defective", "bad", "ng", "fail",
+                             "reject", "rejected", "nok", "damaged", "faulty"}
+            if cls_label in _bad_keywords or any(k in cls_label for k in _bad_keywords):
+                colour = (0, 0, 255)   # red (BGR)
+            else:
+                colour = (0, 200, 0)   # green (BGR)
+
         x1, y1, x2, y2 = int(box[0]), int(box[1]), int(box[2]), int(box[3])
 
         # --- mask overlay ---
@@ -119,6 +134,28 @@ def draw_detections(
             font_thickness,
             cv2.LINE_AA,
         )
+
+        # --- classification badge (below the bounding box) ---
+        if classification is not None:
+            cls_text = f"{classification['label']} {classification['score']:.0%}"
+            (ctw, cth), c_baseline = cv2.getTextSize(
+                cls_text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, font_thickness
+            )
+            cls_y1 = y2
+            cls_y2 = min(y2 + cth + c_baseline + 6, annotated.shape[0])
+            cv2.rectangle(
+                annotated, (x1, cls_y1), (x1 + ctw + 8, cls_y2), colour, -1
+            )
+            cv2.putText(
+                annotated,
+                cls_text,
+                (x1 + 4, cls_y2 - c_baseline - 2),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                font_scale,
+                (255, 255, 255),  # white text on coloured bg
+                font_thickness,
+                cv2.LINE_AA,
+            )
 
     return annotated
 

@@ -6,7 +6,6 @@ No Qt dependency.
 """
 
 import os
-import re
 import json
 import threading
 import time
@@ -64,6 +63,14 @@ class InspectionService:
         self._tracker = ObjectTracker()
         self._tracker_lock = threading.Lock()
         self._tracking_enabled = False
+
+        # Secondary classifier for two-stage ROI inspection
+        self._classifier: Any = None
+        self._classifier_lock = threading.Lock()
+
+        # Classification results log: tracker_id → {label, score, timestamp}
+        self._classification_log: Dict[int, Dict[str, Any]] = {}
+        self._classification_log_lock = threading.Lock()
 
     # ---- properties --------------------------------------------------------
 
@@ -145,11 +152,73 @@ class InspectionService:
         """Remove the ROI polygon and reset counters."""
         with self._tracker_lock:
             self._tracker.clear_polygon()
+        with self._classification_log_lock:
+            self._classification_log.clear()
 
     def reset_roi_counts(self) -> None:
         """Reset zone counters without removing the polygon."""
         with self._tracker_lock:
             self._tracker.reset()
+
+    # ---- secondary classifier (two-stage ROI inspection) -------------------
+
+    @property
+    def has_classifier(self) -> bool:
+        """True if a secondary classification model is loaded."""
+        return self._classifier is not None
+
+    @property
+    def classifier_path(self) -> Optional[str]:
+        """Return the path of the currently loaded classifier, if any."""
+        if self._classifier is not None:
+            return getattr(self._classifier, "model_name", None)
+        return None
+
+    @property
+    def classification_log(self) -> Dict[int, Dict[str, Any]]:
+        """Return a snapshot of classification results keyed by tracker ID."""
+        with self._classification_log_lock:
+            return dict(self._classification_log)
+
+    def load_classifier(self, model_path: str) -> bool:
+        """Load a secondary ConvNeXt classifier for two-stage ROI inspection.
+
+        This classifier runs on objects that enter the ROI polygon:
+        the segmentation model detects + segments, and the ConvNeXt
+        classifier categorises each cropped object (e.g. good / defective).
+
+        Parameters
+        ----------
+        model_path : str
+            Path to a local HuggingFace model directory containing a
+            fine-tuned ConvNeXt (or compatible) image classification model.
+
+        Returns True on success.
+        """
+        try:
+            from detector.classifier import TransformerImageClassifier
+            classifier = TransformerImageClassifier(model_name=model_path)
+            with self._classifier_lock:
+                self._classifier = classifier
+            print(f"[InspectionService] Classifier loaded: {model_path}")
+            return True
+        except Exception as exc:
+            print(f"[InspectionService] Failed to load classifier: {exc}")
+            with self._classifier_lock:
+                self._classifier = None
+            return False
+
+    def clear_classifier(self) -> None:
+        """Unload the secondary classifier."""
+        with self._classifier_lock:
+            self._classifier = None
+        with self._classification_log_lock:
+            self._classification_log.clear()
+
+    def clear_classification_log(self) -> None:
+        """Clear the classification results log."""
+        with self._classification_log_lock:
+            self._classification_log.clear()
 
     # ---- model loading -----------------------------------------------------
 
@@ -280,6 +349,8 @@ class InspectionService:
             self._latest_detections = []
         with self._annotated_lock:
             self._latest_annotated_frame = None
+        with self._classification_log_lock:
+            self._classification_log.clear()
 
     def _inference_loop(self) -> None:
         """Continuously grab the latest frame, run inference, store results.
@@ -316,6 +387,15 @@ class InspectionService:
                 if self._tracking_enabled and self._task_type in ("detection", "segmentation"):
                     with self._tracker_lock:
                         results = self._tracker.update(results)
+
+                    # --- Two-stage classification on ROI-entering objects ---
+                    with self._classifier_lock:
+                        classifier = self._classifier
+
+                    if classifier is not None:
+                        results = self._classify_roi_objects(
+                            frame, results, classifier
+                        )
 
                 # Pre-annotate the frame so the UI thread can display it
                 # directly without doing expensive drawing work.
@@ -373,3 +453,90 @@ class InspectionService:
         """Run the RF-DETR detector on a frame."""
         threshold = self._settings.detection.confidence_threshold / 100.0
         return self._detector.predict(frame, confidence_threshold=threshold)
+
+    # ---- two-stage classification ------------------------------------------
+
+    def _classify_roi_objects(
+        self,
+        frame: np.ndarray,
+        results: List[Dict[str, Any]],
+        classifier,
+    ) -> List[Dict[str, Any]]:
+        """Run the secondary classifier on objects that just entered the ROI.
+
+        For objects that were already classified on a previous frame, the
+        cached result is re-attached so it persists on-screen.
+
+        Parameters
+        ----------
+        frame : np.ndarray
+            The original BGR frame (used for cropping).
+        results : list[dict]
+            Tracked detection dicts (must have ``tracker_id``,
+            ``just_entered``, ``box``).
+        classifier
+            A loaded ``TransformerImageClassifier`` instance.
+
+        Returns
+        -------
+        list[dict]
+            The same dicts, enriched with a ``"classification"`` key
+            where applicable.
+        """
+
+        for det in results:
+            tid = det.get("tracker_id", -1)
+            if tid < 0:
+                continue
+
+            # --- newly entered → classify now ---
+            if det.get("just_entered", False):
+                cls_result = self._classify_crop(frame, det["box"], classifier)
+                if cls_result is not None:
+                    det["classification"] = cls_result
+                    with self._classification_log_lock:
+                        self._classification_log[tid] = cls_result
+
+            # --- previously classified → carry forward cached result ---
+            elif tid >= 0:
+                with self._classification_log_lock:
+                    cached = self._classification_log.get(tid)
+                if cached is not None:
+                    det["classification"] = cached
+
+        return results
+
+    def _classify_crop(
+        self,
+        frame: np.ndarray,
+        box: List[float],
+        classifier,
+    ) -> Optional[Dict[str, Any]]:
+        """Crop the bounding box region and run the classifier.
+
+        Returns
+        -------
+        dict or None
+            ``{"label": str, "score": float, "timestamp": float}``
+            on success, *None* on failure.
+        """
+        from detector.crop import extract_object_crop
+        import cv2
+        from PIL import Image
+
+        try:
+            crop = extract_object_crop(frame, box)
+            rgb = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
+            pil_img = Image.fromarray(rgb)
+            preds = classifier.predict([pil_img], top_k=1)
+            if preds and preds[0]:
+                top = preds[0][0]
+                return {
+                    "label": top["label"],
+                    "score": top["score"],
+                    "timestamp": time.time(),
+                }
+        except Exception as exc:
+            print(f"[InspectionService] Classification error: {exc}")
+        return None
+

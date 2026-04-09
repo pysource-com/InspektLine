@@ -174,6 +174,12 @@ class MainWindow(QMainWindow):
                     self.inspection_service.total_entered,
                 )
 
+            # Update two-stage classification log
+            if self.inspection_service.has_classifier:
+                log = self.inspection_service.classification_log
+                if log and hasattr(self.home_page, "update_classification_log"):
+                    self.home_page.update_classification_log(log)
+
         # Update dataset collection status
         if self.dataset_service.is_collecting:
             if hasattr(self.home_page, "update_collection_status"):

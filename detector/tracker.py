@@ -166,9 +166,11 @@ class ObjectTracker:
             in_zone = bool(in_zone_mask[i]) if in_zone_mask is not None else False
 
             # Track unique IDs entering the zone
+            just_entered = False
             if in_zone and tid >= 0 and tid not in self._seen_ids:
                 self._seen_ids.add(tid)
                 self._total_entered = len(self._seen_ids)
+                just_entered = True
 
             det: Dict[str, Any] = {
                 "box": sv_det.xyxy[i].tolist(),
@@ -178,6 +180,7 @@ class ObjectTracker:
                 "mask": sv_det.mask[i] if sv_det.mask is not None else None,
                 "tracker_id": tid,
                 "in_zone": in_zone,
+                "just_entered": just_entered,
             }
             tracked.append(det)
 

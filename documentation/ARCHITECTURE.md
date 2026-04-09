@@ -21,7 +21,9 @@ InspektLine/
 ├── detector/
 │   ├── classifier.py        # Transformer-based image classifier
 │   ├── rfdetr_detector.py   # RF-DETR object detection & segmentation
-│   └── annotate.py          # OpenCV drawing utilities (boxes, masks)
+│   ├── tracker.py           # ByteTrack tracking + polygon ROI zone
+│   ├── crop.py              # Bounding-box crop utility for two-stage inspection
+│   └── annotate.py          # OpenCV drawing utilities (boxes, masks, badges)
 │
 ├── services/
 │   ├── settings_service.py  # JSON-persisted application settings
@@ -67,12 +69,18 @@ MainWindow (FrameBridge signal)    (main thread)
       │    RFDETRDetector / TransformerImageClassifier
       │         │
       │         ▼
+      │    ObjectTracker (ByteTrack + PolygonZone)
+      │         │
+      │         ▼  (just_entered == True?)
+      │    extract_object_crop() → Secondary Classifier
+      │         │
+      │         ▼
       │    latest_detections  ◄── thread-safe read
       │         │
       │         ▼
-      │    draw_detections() (OpenCV overlay)
+      │    draw_detections() (OpenCV overlay + classification badge)
       │         │
-      ├──► CameraPage.video_label  →  display (annotated frame)
+      ├──► HomePage.video_label  →  display (annotated frame)
       │
       └──► DatasetService.process_frame()
 ```
@@ -93,6 +101,18 @@ Two detector backends are supported, selected via the **Model Type** dropdown on
 - Uses `RFDETRDetector` in `detector/rfdetr_detector.py`
 - Model size (Base / Large), number of classes, and input resolution are configurable in Settings → Detection Parameters
 - Annotations are rendered with OpenCV (`detector/annotate.py`) — coloured bounding boxes, labels, confidence scores, and optional semi-transparent segmentation masks
+
+## Two-Stage ROI Inspection
+
+When using Detection or Segmentation mode, a secondary **ConvNeXt** classifier can be loaded alongside the primary detector for per-object inspection:
+
+1. User draws a **polygon ROI** on the video feed
+2. **ByteTrack** assigns persistent IDs and `PolygonZone` detects when objects enter the ROI
+3. When an object **first enters** the ROI (`just_entered == True`), its bounding-box region is cropped from the frame (`detector/crop.py`)
+4. The crop is passed to the **ConvNeXt classifier** (e.g. "good" vs "defective") via `TransformerImageClassifier`
+5. The classification result (label + score + timestamp) is **cached** by `tracker_id` so it persists across frames
+6. **Annotations** show a colour-coded bounding box (green = OK, red = defect) and a classification badge below the box
+7. An **Inspection Log** in the side panel shows all classified objects with timestamps
 
 ## Threaded Inference
 
